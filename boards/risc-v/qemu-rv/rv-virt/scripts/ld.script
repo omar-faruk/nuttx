@@ -18,9 +18,30 @@
  *
  ****************************************************************************/
 
+#include <nuttx/config.h>
+
+#ifdef CONFIG_ARCH_USE_S_MODE
+#define TEXT_ADDR     0x80200000
+#else
+#define TEXT_ADDR     0x80000000
+#endif
+
 SECTIONS
 {
-  . = 0x80000000;
+  . = TEXT_ADDR;
+
+  /* where the global variable out-of-bounds detection information located */
+#ifdef CONFIG_MM_KASAN_GLOBAL
+  .kasan.unused :
+  {
+    *(.data..LASANLOC*)
+  }
+  .kasan.global :
+  {
+    KEEP (*(.data..LASAN0))
+    KEEP (*(.data.rel.local..LASAN0))
+  }
+#endif
 
   .text :
     {
@@ -95,6 +116,7 @@ SECTIONS
       *(.sbss.*)
       *(.gnu.linkonce.b*)
       *(COMMON)
+      . = ALIGN(32);
       _ebss = . ;
     }
 

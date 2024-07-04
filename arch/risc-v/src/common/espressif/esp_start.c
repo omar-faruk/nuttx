@@ -50,6 +50,7 @@
 #include "soc/extmem_reg.h"
 #include "soc/mmu.h"
 #include "soc/reg_base.h"
+#include "spi_flash_mmap.h"
 #include "rom/cache.h"
 
 #ifdef CONFIG_ESPRESSIF_SIMPLE_BOOT
@@ -152,6 +153,8 @@ extern uint8_t _image_drom_size[];
 extern int ets_printf(const char *fmt, ...) printf_like(1, 2);
 #endif
 
+extern void cache_set_idrom_mmu_size(uint32_t irom_size, uint32_t drom_size);
+
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
@@ -174,11 +177,10 @@ HDR_ATTR static void (*_entry_point)(void) = __start;
  * Public Data
  ****************************************************************************/
 
-/* Address of the IDLE thread */
-
-uint8_t g_idlestack[CONFIG_IDLETHREAD_STACKSIZE]
-  aligned_data(16) locate_data(".noinit");
-uintptr_t g_idle_topstack = ESP_IDLESTACK_TOP;
+extern uint8_t _instruction_reserved_start[];
+extern uint8_t _instruction_reserved_end[];
+extern uint8_t _rodata_reserved_start[];
+extern uint8_t _rodata_reserved_end[];
 
 /****************************************************************************
  * Private Functions
@@ -240,17 +242,9 @@ static int map_rom_segments(uint32_t app_drom_start, uint32_t app_drom_vaddr,
   bool padding_checksum = false;
   unsigned int segments = 0;
   unsigned int ram_segments = 0;
+  unsigned int rom_segments = 0;
   size_t offset = CONFIG_BOOTLOADER_OFFSET_IN_FLASH;
 #endif
-
-  ets_printf("\nIROM lma: 0x%lx  vma: 0x%lx  size: 0x%lx\n",
-             (uint32_t)_image_irom_lma,
-             (uint32_t)_image_irom_vma,
-             (uint32_t)_image_irom_size);
-  ets_printf("DROM lma: 0x%lx  vma: 0x%lx  size: 0x%lx\n",
-             (uint32_t)_image_drom_lma,
-             (uint32_t)_image_drom_vma,
-             (uint32_t)_image_drom_size);
 
 #ifdef CONFIG_ESPRESSIF_SIMPLE_BOOT
 
@@ -268,7 +262,7 @@ static int map_rom_segments(uint32_t app_drom_start, uint32_t app_drom_vaddr,
 
   /* Iterate for segment information parsing */
 
-  while (segments++ < 16)
+  while (segments++ < 16 && rom_segments < 2)
     {
       /* Read segment header */
 
@@ -318,6 +312,7 @@ static int map_rom_segments(uint32_t app_drom_start, uint32_t app_drom_vaddr,
         {
           app_drom_start = offset + sizeof(esp_image_segment_header_t);
           app_drom_start_aligned = app_drom_start & MMU_FLASH_MASK;
+          rom_segments++;
         }
 
       if (IS_IROM(segment_hdr.load_addr) &&
@@ -325,6 +320,7 @@ static int map_rom_segments(uint32_t app_drom_start, uint32_t app_drom_vaddr,
         {
           app_irom_start = offset + sizeof(esp_image_segment_header_t);
           app_irom_start_aligned = app_irom_start & MMU_FLASH_MASK;
+          rom_segments++;
         }
 
       if (IS_SRAM(segment_hdr.load_addr))
@@ -396,6 +392,11 @@ static int map_rom_segments(uint32_t app_drom_start, uint32_t app_drom_vaddr,
 
 void __esp_start(void)
 {
+#ifdef CONFIG_ESP_ROM_NEEDS_SET_CACHE_MMU_SIZE
+  uint32_t _instruction_size;
+  uint32_t cache_mmu_irom_size;
+#endif
+
 #ifdef CONFIG_ESPRESSIF_SIMPLE_BOOT
   if (bootloader_init() != 0)
     {
@@ -421,6 +422,19 @@ void __esp_start(void)
       while (true);
     }
 #endif
+
+#if CONFIG_ESP_ROM_NEEDS_SET_CACHE_MMU_SIZE
+  _instruction_size = (uint32_t)&_instruction_reserved_end - \
+                      (uint32_t)&_instruction_reserved_start;
+  cache_mmu_irom_size =
+      ((_instruction_size + SPI_FLASH_MMU_PAGE_SIZE - 1) / \
+      SPI_FLASH_MMU_PAGE_SIZE) * sizeof(uint32_t);
+
+  /* Configure the Cache MMU size for instruction and rodata in flash. */
+
+  cache_set_idrom_mmu_size(cache_mmu_irom_size,
+                           CACHE_DROM_MMU_MAX_END - cache_mmu_irom_size);
+#endif /* CONFIG_ESP_ROM_NEEDS_SET_CACHE_MMU_SIZE */
 
 #ifdef CONFIG_ESPRESSIF_REGION_PROTECTION
   /* Configure region protection */

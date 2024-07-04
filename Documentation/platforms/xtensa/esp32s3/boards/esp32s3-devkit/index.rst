@@ -146,6 +146,22 @@ the ``buttons`` application and pressing on any of the available board buttons::
     nsh> Sample = 1
     Sample = 0
 
+capture
+--------
+
+The capture configuration enables the capture driver and the capture example, allowing
+the user to measure duty cycle and frequency of a signal. Default pin is GPIO 12 with
+an internal pull-up resistor enabled. When connecting a 50 Hz pulse with 50% duty cycle,
+the following output is expected:
+
+nsh> cap
+cap_main: Hardware initialized. Opening the capture device: /dev/capture0
+cap_main: Number of samples: 0
+pwm duty cycle: 50 % 
+pwm frequence: 50 Hz 
+pwm duty cycle: 50 % 
+pwm frequence: 50 Hz 
+
 coremark
 --------
 
@@ -324,6 +340,59 @@ To test it, just run the ``oneshot`` example::
     Starting oneshot timer with delay 2000000 microseconds
     Waiting...
     Finished
+
+pm
+-------
+
+This config demonstrate the use of power management present on the ESP32-S3.
+You can use the ``pmconfig`` command to test the power management.
+Enables PM support. You can define standby mode and sleep mode delay time::
+
+    $ make menuconfig
+    -> Board Selection
+        -> (15) PM_STANDBY delay (seconds)
+           (0)  PM_STANDBY delay (nanoseconds)
+           (20) PM_SLEEP delay (seconds)
+           (0)  PM_SLEEP delay (nanoseconds)
+
+Before switching PM status, you need to query the current PM status::
+
+    nsh> pmconfig
+    Last state 0, Next state 0
+
+    /proc/pm/state0:
+    DOMAIN0           WAKE         SLEEP         TOTAL
+    normal          0s 00%        0s 00%        0s 00%
+    idle            0s 00%        0s 00%        0s 00%
+    standby         0s 00%        0s 00%        0s 00%
+    sleep           0s 00%        0s 00%        0s 00%
+
+    /proc/pm/wakelock0:
+    DOMAIN0      STATE     COUNT      TIME
+    system       normal        2        1s
+    system       idle          1        1s
+    system       standby       1        1s
+    system       sleep         1        1s
+
+System switch to the PM idle mode, you need to enter::
+
+    nsh> pmconfig relax normal
+    nsh> pmconfig relax normal
+
+System switch to the PM standby mode, you need to enter::
+
+    nsh> pmconfig relax idle
+    nsh> pmconfig relax normal
+    nsh> pmconfig relax normal
+
+System switch to the PM sleep mode, you need to enter::
+
+    nsh> pmconfig relax standby
+    nsh> pmconfig relax idle
+    nsh> pmconfig relax normal
+    nsh> pmconfig relax normal
+
+Note: When normal mode COUNT is 0, it will switch to the next PM state where COUNT is not 0.
 
 psram_quad
 ----------

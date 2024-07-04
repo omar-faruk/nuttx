@@ -29,6 +29,8 @@
 
 #include <nuttx/fs/fs.h>
 
+#include "imx9_dma_alloc.h"
+
 #include "imx93-evk.h"
 
 /****************************************************************************
@@ -57,6 +59,16 @@ int imx9_bringup(void)
     }
 #endif
 
+#ifdef CONFIG_IMX9_DMA_ALLOC
+  /* Initialize the DMA memory allocator */
+
+  ret = imx9_dma_alloc_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed initialize DMA allocator: %d\n", ret);
+    }
+#endif
+
 #ifdef CONFIG_PWM
   /* Configure PWM outputs */
 
@@ -64,6 +76,35 @@ int imx9_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: Failed initialize PWM outputs: %d\n", ret);
+    }
+#endif
+
+#if defined(CONFIG_I2C_DRIVER)
+  /* Configure I2C peripheral interfaces */
+
+  ret = imx9_i2c_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize I2C driver: %d\n", ret);
+    }
+#endif
+
+#if defined(CONFIG_SPI_DRIVER)
+  /* Configure SPI peripheral interfaces */
+
+  ret = imx9_spi_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize SPI driver: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_MMCSD
+  ret = imx9_usdhc_init();
+
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to init MMCSD driver: %d\n", ret);
     }
 #endif
 

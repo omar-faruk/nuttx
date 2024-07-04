@@ -475,6 +475,10 @@ struct file
 #ifdef CONFIG_FDCHECK
   uint8_t           f_tag_fdcheck; /* File owner fdcheck tag, init to 0 */
 #endif
+
+#if CONFIG_FS_BACKTRACE > 0
+  FAR void         *f_backtrace[CONFIG_FS_BACKTRACE]; /* Backtrace to while file opens */
+#endif
 };
 
 /* This defines a two layer array of files indexed by the file descriptor.
@@ -856,6 +860,16 @@ int nx_umount2(FAR const char *target, unsigned int flags);
  ****************************************************************************/
 
 void files_initlist(FAR struct filelist *list);
+
+/****************************************************************************
+ * Name: files_dumplist
+ *
+ * Description:
+ *   Dump the list of files.
+ *
+ ****************************************************************************/
+
+void files_dumplist(FAR struct filelist *list);
 
 /****************************************************************************
  * Name: files_releaselist

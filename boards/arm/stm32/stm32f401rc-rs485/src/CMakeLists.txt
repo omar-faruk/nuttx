@@ -1,5 +1,5 @@
 # ##############################################################################
-# boards/arm/stm32/smt32f401rc-rs485/src/CMakeLists.txt
+# boards/arm/stm32/stm32f401rc-rs485/src/CMakeLists.txt
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
@@ -54,6 +54,10 @@ endif()
 
 if(CONFIG_STM32_PWM)
   list(APPEND SRCS stm32_pwm.c)
+endif()
+
+if(CONFIG_USBMSC)
+  list(APPEND SRCS stm32_usbmsc.c)
 endif()
 
 target_sources(board PRIVATE ${SRCS})
