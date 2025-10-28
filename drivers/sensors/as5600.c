@@ -37,14 +37,7 @@
 #include <nuttx/signal.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/i2c/i2c_master.h>
-
-#define AS5600_ADDR 0x36 /* 7-bit address for AS5600 */
-
-#ifdef CONFIG_SENSORS_AS5600_FREQUENCY
-#define AS5600_FREQ CONFIG_SENSORS_AS5600_FREQUENCY
-#else
-#define AS5600_FREQ 400000 /* 400kHz */
-#endif
+#include <nuttx/sensors/as5600.h>
 
 #if defined(CONFIG_I2C) && defined(CONFIG_SENSORS_AS5600)
 
@@ -63,7 +56,7 @@ struct as5600_dev_s
 
 static ssize_t as5600_read(FAR struct file *filep, FAR uint8_t *buffer, size_t buflen);
 static ssize_t as5600_write(FAR struct file *filep, FAR const uint8_t *buffer, size_t buflen);
-
+static int as5600_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
 /****************************************************************************
  * Private Data
  ****************************************************************************/
@@ -72,8 +65,10 @@ static const struct file_operations g_as5600fops =
     {
         NULL,         /* open */
         NULL,         /* close */
-        as5600_read,  /* read */
-        as5600_write, /* write */
+        NULL,         /* read */
+        NULL,         /* write */
+        NULL,         /* seek */
+        as5600_ioctl, /* ioctl */
 };
 
 /****************************************************************************
@@ -84,56 +79,125 @@ static const struct file_operations g_as5600fops =
  * Name: as5600_read
  ****************************************************************************/
 
-static ssize_t as5600_read(FAR struct file *filep, FAR uint8_t *buffer, size_t buflen)
+static ssize_t as5600_read_reg(FAR struct as5600_dev_s *priv, uint8_t regaddr, uint8_t *regval)
 {
-
-  FAR struct inode *inode = filep->f_inode;
-  FAR struct as5600_dev_s *priv = inode->i_private;
   int ret = OK;
   struct i2c_config_s config;
 
   /* Set up the I2C configuration */
 
-  config.frequency = priv->freq;
+  config.frequency = priv->frequency;
   config.address = priv->addr;
   config.addrlen = 7;
 
-  /* Restart and read 16-bits from the register */
+  /* Write the register address */
 
-  ret = i2c_read(priv->i2c, &config, buffer, buflen);
+  ret = i2c_write(priv->i2c, &config, &regaddr, sizeof(regaddr));
   if (ret < 0)
   {
-    snerr("i2c_read failed: %d\n", ret);
+    snerr("ERROR: i2c_write failed: %d\n", ret);
+    return ret;
   }
 
+  /* Restart and read 8 bits from the register */
+
+  ret = i2c_read(priv->i2c, &config, regval, sizeof(uint8_t));
+  if (ret < 0)
+  {
+    snerr("ERROR: i2c_read failed: %d\n", ret);
+    return ret;
+  }
+
+  sninfo("addr: %02x value: %02x ret: %d\n", regaddr, *regval, ret);
   return ret;
+}
 }
 
 /****************************************************************************
  * Name: as5600_write
  ****************************************************************************/
 
-static ssize_t as5600_write(FAR struct file *filep, FAR const uint8_t *buffer,size_t buflen)
+static ssize_t as5600_write_reg(FAR struct as5600_dev_s *priv, uint8_t regaddr, uint8_t regval)
 {
-  FAR struct inode *inode = filep->f_inode;
-  FAR struct as5600_dev_s *priv = inode->i_private;
-  int ret = OK;
+
   struct i2c_config_s config;
+  int ret = OK;
+
+  sninfo("addr: %02x value: %02x\n", regaddr, regval);
 
   /* Set up the I2C configuration */
 
-  config.frequency = priv->freq;
+  config.frequency = priv->frequency;
   config.address = priv->addr;
   config.addrlen = 7;
 
-  ret = i2c_write(priv->i2c, &config, buffer, buflen);
+  /* Set up a 2-byte message to send */
+
+  buffer[0] = regaddr;
+  buffer[1] = regval;
+
+  /* Write the register address and value */
+
+  ret = i2c_write(priv->i2c, &config, buffer, 2);
   if (ret < 0)
   {
-    snerr("i2c_write failed: %d\n", ret);
+    snerr("ERROR: i2c_write failed: %d\n", ret);
   }
+
   return ret;
 }
 
+static int as5600_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
+{
+  FAR struct inode *inode = filep->f_inode;
+  FAR struct as5600_dev_s *priv = inode->i_private;
+
+  as5600_reg_io_s *reg_io = (FAR struct as5600_reg_io_s *)((uintptr_t)arg);
+  int ret = 0;
+
+  switch (cmd)
+  {
+  case AS5600_IOC_READ_REG:
+  {
+    
+    if (reg_io->data == NULL)
+    {
+        malloc(reg_io, sizeof(uint8_t) * buflen);
+    }
+    uint8_t data;
+    for (size_t i = 0; i < reg_io->buflen; i++)
+    {
+
+      ret = as5600_read_reg(priv, &reg_io->regval, data);
+      if (ret < 0)
+      {
+        snerr("AS5600_IOC_READ_REG failed: %d\n", ret);
+        return ret;
+      }
+      reg_io->data[i] = data;
+    }
+    break;
+  }
+  
+  case AS5600_IOC_WRITE_REG:
+  {
+    ret = as5600_write_reg(priv, reg_io->regval, reg - io->buflen);
+    if (ret < 0)
+    {
+      snerr("AS5600_IOC_WRITE_REG failed: %d\n", ret);
+      return ret;
+    }
+    break;
+  }
+
+  default:
+  {
+    snerr("Unrecognized cmd: %d\n", cmd);
+    ret = -ENOTTY;
+    break;
+  }
+  return ret;
+}
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -188,4 +252,3 @@ int as5600_register(FAR const char *devpath, FAR struct i2c_master_s *i2c)
 }
 
 #endif /* CONFIG_I2C && CONFIG_SENSORS_AS5600 */
- 
