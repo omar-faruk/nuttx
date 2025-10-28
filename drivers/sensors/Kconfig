@@ -2161,4 +2161,21 @@ config TMP112_I2C_FREQUENCY
 
 endif #SENSORS_TMP112
 
+
+
+config SENSORS_AS5600
+	bool "AS5600 Rotary Position Sensor support"
+	default n
+	select I2C
+	---help---
+		Enable driver support for the AS5600 Rotary Position Sensor .
+
+if SENSORS_AS5600
+
+config SENSORS_AS5600_FREQUENCY
+	int "SENSORS_AS5600_FREQUENCY"
+	default 400000
+
+endif #SENSORS_TMP112
+
 endif # SENSORS

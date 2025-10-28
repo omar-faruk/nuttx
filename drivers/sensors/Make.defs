@@ -472,6 +472,10 @@ ifeq ($(CONFIG_SENSORS_CXD5602PWBIMU),y)
   CSRCS += cxd5602pwbimu.c
 endif
 
+ifeq ($(CONFIG_SENSORS_AS5600),y)
+  CSRCS += as5600.c
+endif
+
 # Include sensor driver build support
 
 DEPPATH += --dep-path sensors
