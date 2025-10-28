@@ -1,6 +1,7 @@
 /****************************************************************************
  * net/ipfrag/ipv4_frag.c
- * Handling incoming IPv4 fragment input
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -68,7 +69,7 @@ ipv4_fragout_buildipv4header(FAR struct ipv4_hdr_s *ref,
  * Name: ipv4_fragin_getinfo
  *
  * Description:
- *   Polulate fragment information from the input ipv4 packet data.
+ *   Populate fragment information from the input ipv4 packet data.
  *
  * Input Parameters:
  *   iob      - An IPv4 fragment
@@ -275,7 +276,7 @@ int32_t ipv4_fragin(FAR struct net_driver_s *dev)
       return -ENOMEM;
     }
 
-  /* Polulate fragment information from input packet data */
+  /* Populate fragment information from input packet data */
 
   ipv4_fragin_getinfo(dev->d_iob, fraginfo);
 

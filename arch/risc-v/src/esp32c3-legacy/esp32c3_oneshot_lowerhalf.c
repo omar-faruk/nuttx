@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/risc-v/src/esp32c3-legacy/esp32c3_oneshot_lowerhalf.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -160,9 +162,9 @@ static int oneshot_lh_max_delay(struct oneshot_lowerhalf_s *lower,
   DEBUGASSERT(ts != NULL);
 
   /* The real maximum delay surpass the limit that timespec can
-   * reprent. Even using the better case: a resolution of
+   * represent. Even using the better case: a resolution of
    * 1 us.
-   * Therefore, here, fulfill the timespec with the
+   * Therefore, here, fill the timespec with the
    * maximum value it can represent.
    */
 

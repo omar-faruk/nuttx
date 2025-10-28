@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/timers/oneshot.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -40,7 +42,7 @@
 #ifdef CONFIG_ONESHOT
 
 /****************************************************************************
- * Private Type Definitions
+ * Private Types
  ****************************************************************************/
 
 /* This structure describes the state of the upper half driver */
@@ -110,7 +112,7 @@ static void oneshot_callback(FAR struct oneshot_lowerhalf_s *lower,
  * Name: oneshot_read
  *
  * Description:
- *   A dummy read method.  This is provided only to satsify the VFS layer.
+ *   A dummy read method.  This is provided only to satisfy the VFS layer.
  *
  ****************************************************************************/
 
@@ -127,7 +129,7 @@ static ssize_t oneshot_read(FAR struct file *filep, FAR char *buffer,
  * Name: oneshot_write
  *
  * Description:
- *   A dummy write method.  This is provided only to satsify the VFS layer.
+ *   A dummy write method.  This is provided only to satisfy the VFS layer.
  *
  ****************************************************************************/
 

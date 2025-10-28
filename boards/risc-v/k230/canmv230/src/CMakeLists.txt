@@ -1,6 +1,8 @@
 # ##############################################################################
 # boards/risc-v/k230/canmv230/src/CMakeLists.txt
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
 # additional information regarding copyright ownership.  The ASF licenses this
@@ -21,8 +23,8 @@
 set(SRCS canmv_init.c)
 
 if(CONFIG_BUILD_KERNEL)
-  if(EXISTS romfs_boot.c)
-    list(APPEND SRCS romfs_boot.c)
+  if(EXISTS ${CMAKE_BINARY_DIR}/romfs_boot.c)
+    list(APPEND SRCS ${CMAKE_BINARY_DIR}/romfs_boot.c)
   else()
     list(APPEND SRCS romfs_stub.c)
   endif()
@@ -33,11 +35,7 @@ target_sources(board PRIVATE ${SRCS})
 if(CONFIG_ARCH_CHIP_K230)
   if(CONFIG_BUILD_KERNEL)
     if(CONFIG_NUTTSBI)
-      if(CONFIG_RPTUN)
-        set(LDFILE ld-rptun.script)
-      else()
-        set(LDFILE ld-nuttsbi.script)
-      endif()
+      set(LDFILE ld-nuttsbi.script)
     else()
       set(LDFILE ld-kernel.script)
     endif()

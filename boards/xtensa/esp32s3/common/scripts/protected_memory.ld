@@ -1,6 +1,8 @@
 /****************************************************************************
  * boards/xtensa/esp32s3/common/scripts/protected_memory.ld
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -80,7 +82,7 @@ MEMORY
   /* Instruction RAM */
 
   UIRAM (RWX) :     org = SRAM_IRAM_ORG, len = 16K
-  KIRAM (RWX) :     org = ORIGIN(UIRAM) + LENGTH(UIRAM), len = 32K
+  KIRAM (RWX) :     org = ORIGIN(UIRAM) + LENGTH(UIRAM), len = 48K
 
   /* Flash mapped instruction data. */
 

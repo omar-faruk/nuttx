@@ -1,6 +1,8 @@
 /****************************************************************************
  * net/local/local_accept.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -125,7 +127,7 @@ int local_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
 
   for (; ; )
     {
-      /* Are there pending connections.  Remove the accpet from the
+      /* Are there pending connections.  Remove the accept from the
        * head of the waiting list.
        */
 
@@ -135,12 +137,12 @@ int local_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
           conn = container_of(waiter, struct local_conn_s,
                               u.accept.lc_waiter);
 
-          /* Decrement the number of pending accpets */
+          /* Decrement the number of pending accepts */
 
           DEBUGASSERT(server->u.server.lc_pending > 0);
           server->u.server.lc_pending--;
 
-          /* Setup the accpet socket structure */
+          /* Setup the accept socket structure */
 
           newsock->s_domain = psock->s_domain;
           newsock->s_type   = SOCK_STREAM;
@@ -149,9 +151,9 @@ int local_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
 
           /* Return the address family */
 
-          if (addr != NULL)
+          if (addr != NULL && conn->lc_peer != NULL)
             {
-              ret = local_getaddr(conn, addr, addrlen);
+              ret = local_getaddr(conn->lc_peer, addr, addrlen);
             }
 
           if (ret == OK && nonblock)

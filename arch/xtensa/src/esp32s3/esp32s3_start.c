@@ -40,6 +40,7 @@
 #include "esp32s3_rtc.h"
 #include "esp32s3_spiram.h"
 #include "esp32s3_wdt.h"
+#include "esp32s3_dma.h"
 #ifdef CONFIG_BUILD_PROTECTED
 #  include "esp32s3_userspace.h"
 #endif
@@ -49,26 +50,28 @@
 #include "rom/esp32s3_libc_stubs.h"
 #include "rom/opi_flash.h"
 #include "rom/esp32s3_spiflash.h"
+#include "espressif/esp_loader.h"
 
+#include "esp_app_desc.h"
 #include "hal/mmu_hal.h"
 #include "hal/mmu_types.h"
 #include "hal/cache_types.h"
 #include "hal/cache_ll.h"
 #include "hal/cache_hal.h"
+#include "hal/efuse_ll.h"
 #include "soc/extmem_reg.h"
 #include "rom/cache.h"
 #include "spi_flash_mmap.h"
 
 #ifdef CONFIG_ESPRESSIF_SIMPLE_BOOT
 #  include "bootloader_init.h"
-#  include "bootloader_flash_priv.h"
-#  include "esp_rom_uart.h"
-#  include "esp_rom_sys.h"
-#  include "esp_app_format.h"
 #endif
+#include "bootloader_flash_config.h"
 
 #include "esp_clk_internal.h"
 #include "periph_ctrl.h"
+
+#include "esp_private/startup_internal.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -84,9 +87,6 @@
     defined (CONFIG_ESPRESSIF_SIMPLE_BOOT)
 #  ifdef CONFIG_ESP32S3_APP_FORMAT_MCUBOOT
 #    define PRIMARY_SLOT_OFFSET   CONFIG_ESP32S3_OTA_PRIMARY_SLOT_OFFSET
-     /* Cache MMU address mask (MMU tables ignore bits which are zero) */
-
-#    define MMU_FLASH_MASK        (~(MMU_PAGE_SIZE - 1))
 #  else
     /* Force offset to the beginning of the whole image */
 
@@ -94,42 +94,6 @@
 #  endif
 #  define HDR_ATTR              __attribute__((section(".entry_addr"))) \
                                 __attribute__((used))
-#  define MMU_BLOCK_SIZE        0x00010000  /* 64 KB */
-#  define CACHE_REG             EXTMEM_ICACHE_CTRL1_REG
-#  define CACHE_MASK            (EXTMEM_ICACHE_SHUT_IBUS_M | \
-                                 EXTMEM_ICACHE_SHUT_DBUS_M)
-
-#  define CHECKSUM_ALIGN        16
-#  define IS_PADD(addr) (addr == 0)
-#  define IS_DRAM(addr) (addr >= SOC_DRAM_LOW && addr < SOC_DRAM_HIGH)
-#  define IS_IRAM(addr) (addr >= SOC_IRAM_LOW && addr < SOC_IRAM_HIGH)
-#  define IS_IROM(addr) (addr >= SOC_IROM_LOW && addr < SOC_IROM_HIGH)
-#  define IS_DROM(addr) (addr >= SOC_DROM_LOW && addr < SOC_DROM_HIGH)
-#  define IS_SRAM(addr) (IS_IRAM(addr) || IS_DRAM(addr))
-#  define IS_MMAP(addr) (IS_IROM(addr) || IS_DROM(addr))
-#  ifdef SOC_RTC_FAST_MEM_SUPPORTED
-#    define IS_RTC_FAST_IRAM(addr) \
-                        (addr >= SOC_RTC_IRAM_LOW && addr < SOC_RTC_IRAM_HIGH)
-#    define IS_RTC_FAST_DRAM(addr) \
-                        (addr >= SOC_RTC_DRAM_LOW && addr < SOC_RTC_DRAM_HIGH)
-#  else
-#    define IS_RTC_FAST_IRAM(addr) 0
-#    define IS_RTC_FAST_DRAM(addr) 0
-#  endif
-#  ifdef SOC_RTC_SLOW_MEM_SUPPORTED
-#    define IS_RTC_SLOW_DRAM(addr) \
-                        (addr >= SOC_RTC_DATA_LOW && addr < SOC_RTC_DATA_HIGH)
-#  else
-#    define IS_RTC_SLOW_DRAM(addr) 0
-#  endif
-
-#  define IS_NONE(addr) (!IS_IROM(addr) && !IS_DROM(addr) \
-                      && !IS_IRAM(addr) && !IS_DRAM(addr) \
-                      && !IS_RTC_FAST_IRAM(addr) && !IS_RTC_FAST_DRAM(addr) \
-                      && !IS_RTC_SLOW_DRAM(addr) && !IS_PADD(addr))
-
-#  define IS_MAPPING(addr) IS_IROM(addr) || IS_DROM(addr)
-
 #endif
 
 /****************************************************************************
@@ -176,6 +140,7 @@ extern void cache_set_idrom_mmu_info(uint32_t instr_page_num,
 #ifdef CONFIG_ESP32S3_DATA_CACHE_16KB
 extern int cache_occupy_addr(uint32_t addr, uint32_t size);
 #endif
+extern int ets_printf(const char *fmt, ...);
 
 /****************************************************************************
  * Private Function Prototypes
@@ -203,6 +168,11 @@ extern uint8_t _instruction_reserved_start[];
 extern uint8_t _instruction_reserved_end[];
 extern uint8_t _rodata_reserved_start[];
 extern uint8_t _rodata_reserved_end[];
+
+#ifdef CONFIG_XTENSA_EXTMEM_BSS
+extern uintptr_t _ext_ram_bss_start;
+extern uintptr_t _ext_ram_bss_end;
+#endif
 
 /* Address of the CPU0 IDLE thread */
 
@@ -416,12 +386,6 @@ noinstrument_function void noreturn_function IRAM_ATTR __esp32s3_start(void)
 
   showprogress('A');
 
-#if defined(CONFIG_ESP32S3_FLASH_MODE_OCT) || \
-    defined(CONFIG_ESP32S3_SPIRAM_MODE_OCT)
-  esp_rom_opiflash_pin_config();
-  esp32s3_spi_timing_set_pin_drive_strength();
-#endif
-
   /* The PLL provided by bootloader is not stable enough, do calibration
    * again here so that we can use better clock for the timing tuning.
    */
@@ -442,14 +406,36 @@ noinstrument_function void noreturn_function IRAM_ATTR __esp32s3_start(void)
     }
   else
     {
-      esp_spiram_init_cache();
-      esp_spiram_test();
+      if (esp_spiram_init_cache() != OK)
+        {
+          ets_printf("SPIRAM init cache failed\n");
+          PANIC();
+        }
+
+#  if defined(CONFIG_ESP32S3_SPIRAM_MEMTEST)
+      if (esp_spiram_test() != OK)
+        {
+          ets_printf("SPIRAM test failed\n");
+          PANIC();
+        }
+#  endif  // CONFIG_ESP32S3_SPIRAM_MEMTEST
     }
+#endif
+
+#ifdef CONFIG_XTENSA_EXTMEM_BSS
+  memset(&_ext_ram_bss_start, 0,
+         (&_ext_ram_bss_end - &_ext_ram_bss_start) * sizeof(uintptr_t));
 #endif
 
   /* Setup the syscall table needed by the ROM code */
 
   esp_setup_syscall_table();
+
+#if defined(CONFIG_ESP32S3_DMA)
+  /* Initialize GDMA controller */
+
+  esp32s3_dma_init();
+#endif
 
   /* Initialize onboard resources */
 
@@ -468,179 +454,13 @@ noinstrument_function void noreturn_function IRAM_ATTR __esp32s3_start(void)
   showprogress('C');
 #endif
 
+  SYS_STARTUP_FN();
+
   /* Bring up NuttX */
 
   nx_start();
   for (; ; ); /* Should not return */
 }
-
-/****************************************************************************
- * Name: map_rom_segments
- *
- * Description:
- *   Configure the MMU and Cache peripherals for accessing ROM code and data.
- *
- * Input Parameters:
- *   None.
- *
- * Returned Value:
- *   None.
- *
- ****************************************************************************/
-
-#if defined(CONFIG_ESP32S3_APP_FORMAT_MCUBOOT) || \
-    defined(CONFIG_ESPRESSIF_SIMPLE_BOOT)
-static int map_rom_segments(uint32_t app_drom_start, uint32_t app_drom_vaddr,
-                            uint32_t app_drom_size, uint32_t app_irom_start,
-                            uint32_t app_irom_vaddr, uint32_t app_irom_size)
-{
-  uint32_t rc = 0;
-  uint32_t actual_mapped_len = 0;
-  uint32_t app_irom_start_aligned = app_irom_start & MMU_FLASH_MASK;
-  uint32_t app_irom_vaddr_aligned = app_irom_vaddr & MMU_FLASH_MASK;
-  uint32_t app_drom_start_aligned = app_drom_start & MMU_FLASH_MASK;
-  uint32_t app_drom_vaddr_aligned = app_drom_vaddr & MMU_FLASH_MASK;
-
-#ifdef CONFIG_ESPRESSIF_SIMPLE_BOOT
-  esp_image_header_t image_header; /* Header for entire image */
-  esp_image_segment_header_t WORD_ALIGNED_ATTR segment_hdr;
-  bool padding_checksum = false;
-  unsigned int segments = 0;
-  unsigned int ram_segments = 0;
-  unsigned int rom_segments = 0;
-  size_t offset = CONFIG_BOOTLOADER_OFFSET_IN_FLASH;
-
-  /* Read image header */
-
-  if (bootloader_flash_read(offset, &image_header,
-                            sizeof(esp_image_header_t),
-                            true) != ESP_OK)
-    {
-      ets_printf("Failed to load image header!\n");
-      abort();
-    }
-
-  offset += sizeof(esp_image_header_t);
-
-  /* Iterate for segment information parsing */
-
-  while (segments++ < 16 && rom_segments < 2)
-    {
-      /* Read segment header */
-
-      if (bootloader_flash_read(offset, &segment_hdr,
-                                sizeof(esp_image_segment_header_t),
-                                true) != ESP_OK)
-        {
-          ets_printf("failed to read segment header at %x\n", offset);
-          abort();
-        }
-
-      if (IS_NONE(segment_hdr.load_addr))
-        {
-          break;
-        }
-
-      if (IS_RTC_FAST_IRAM(segment_hdr.load_addr) ||
-          IS_RTC_FAST_DRAM(segment_hdr.load_addr) ||
-          IS_RTC_SLOW_DRAM(segment_hdr.load_addr))
-        {
-          /* RTC segment is loaded by ROM bootloader */
-
-          ram_segments++;
-        }
-
-      ets_printf("%s: lma 0x%08x vma 0x%08x len 0x%-6x (%u)\n",
-          IS_NONE(segment_hdr.load_addr) ? "???" :
-            IS_RTC_FAST_IRAM(segment_hdr.load_addr) ||
-            IS_RTC_FAST_DRAM(segment_hdr.load_addr) ||
-            IS_RTC_SLOW_DRAM(segment_hdr.load_addr) ? "rtc" :
-              IS_MMAP(segment_hdr.load_addr) ?
-                IS_IROM(segment_hdr.load_addr) ? "imap" : "dmap" :
-                  IS_PADD(segment_hdr.load_addr) ? "padd" :
-                    IS_DRAM(segment_hdr.load_addr) ? "dram" : "iram",
-          offset + sizeof(esp_image_segment_header_t),
-          segment_hdr.load_addr, segment_hdr.data_len,
-          segment_hdr.data_len);
-
-      /* Fix drom and irom produced be the linker, as this
-       * is later invalidated by the elf2image command.
-       */
-
-      if (IS_DROM(segment_hdr.load_addr) &&
-          segment_hdr.load_addr == (uint32_t)_image_drom_vma)
-        {
-          app_drom_start = offset + sizeof(esp_image_segment_header_t);
-          app_drom_start_aligned = app_drom_start & MMU_FLASH_MASK;
-          rom_segments++;
-        }
-
-      if (IS_IROM(segment_hdr.load_addr) &&
-          segment_hdr.load_addr == (uint32_t)_image_irom_vma)
-        {
-          app_irom_start = offset + sizeof(esp_image_segment_header_t);
-          app_irom_start_aligned = app_irom_start & MMU_FLASH_MASK;
-          rom_segments++;
-        }
-
-      if (IS_SRAM(segment_hdr.load_addr))
-        {
-          ram_segments++;
-        }
-
-      offset += sizeof(esp_image_segment_header_t) + segment_hdr.data_len;
-      if (ram_segments == image_header.segment_count && !padding_checksum)
-        {
-          offset += (CHECKSUM_ALIGN - 1) - (offset % CHECKSUM_ALIGN) + 1;
-          padding_checksum = true;
-        }
-    }
-
-  if (segments == 0 || segments == 16)
-    {
-      ets_printf("Error parsing segments\n");
-    }
-
-  ets_printf("total segments stored %d\n", segments - 1);
-#endif
-
-  cache_hal_disable(CACHE_TYPE_ALL);
-
-  /* Clear the MMU entries that are already set up,
-   * so the new app only has the mappings it creates.
-   */
-
-  mmu_hal_unmap_all();
-
-  mmu_hal_map_region(0, MMU_TARGET_FLASH0,
-                     app_drom_vaddr_aligned, app_drom_start_aligned,
-                     app_drom_size, &actual_mapped_len);
-
-  mmu_hal_map_region(0, MMU_TARGET_FLASH0,
-                     app_irom_vaddr_aligned, app_irom_start_aligned,
-                     app_irom_size, &actual_mapped_len);
-
-  /* ------------------Enable corresponding buses--------------------- */
-
-  cache_bus_mask_t bus_mask = cache_ll_l1_get_bus(0, app_drom_vaddr_aligned,
-                                                  app_drom_size);
-  cache_ll_l1_enable_bus(0, bus_mask);
-  bus_mask = cache_ll_l1_get_bus(0, app_irom_vaddr_aligned, app_irom_size);
-  cache_ll_l1_enable_bus(0, bus_mask);
-#if CONFIG_ESPRESSIF_NUM_CPUS > 1
-  bus_mask = cache_ll_l1_get_bus(1, app_drom_vaddr_aligned, app_drom_size);
-  cache_ll_l1_enable_bus(1, bus_mask);
-  bus_mask = cache_ll_l1_get_bus(1, app_irom_vaddr_aligned, app_irom_size);
-  cache_ll_l1_enable_bus(1, bus_mask);
-#endif
-
-  /* ------------------Enable Cache----------------------------------- */
-
-  cache_hal_enable(CACHE_TYPE_ALL);
-
-  return (int)rc;
-}
-#endif
 
 /****************************************************************************
  * Public Functions
@@ -661,6 +481,8 @@ static int map_rom_segments(uint32_t app_drom_start, uint32_t app_drom_vaddr,
 
 noinstrument_function void IRAM_ATTR __start(void)
 {
+  const esp_app_desc_t *app_desc;
+
 #if defined(CONFIG_ESP32S3_APP_FORMAT_MCUBOOT) || \
     defined(CONFIG_ESPRESSIF_SIMPLE_BOOT)
   size_t partition_offset = PRIMARY_SLOT_OFFSET;
@@ -689,7 +511,50 @@ noinstrument_function void IRAM_ATTR __start(void)
     }
 #endif
 
+  app_desc = esp_app_get_description();
+  if (app_desc->magic_word != ESP_APP_DESC_MAGIC_WORD)
+    {
+      ets_printf("Magic Word check failed: %08" PRIx32 "\n",
+                 app_desc->magic_word);
+      ets_printf("Trying to boot anyway...\n");
+    }
+
   configure_cpu_caches();
+
+  if (efuse_ll_get_flash_type())
+    {
+#ifndef CONFIG_ESP32S3_FLASH_MODE_OCT
+      ets_printf("Octal Flash chip detected!\n"
+                 "Select CONFIG_ESP32S3_FLASH_MODE_OCT on menuconfig\n");
+      abort();
+#endif
+    }
+  else
+    {
+#ifdef CONFIG_ESP32S3_FLASH_MODE_OCT
+      ets_printf("Octal Flash option selected, but EFUSE not configured!\n");
+      abort();
+#endif
+    }
+
+  esp_mspi_pin_init();
+
+  /* At this point, the Flash chip is still in one of the DOUT, DIO, QOUT
+   * or QIO modes. It's hard to implement a read_id function in OPI mode,
+   * so the Flash chip ID is read here, before entering the OPI mode (if
+   * applicable).
+   */
+
+  bootloader_flash_update_id();
+
+  /* The following function initializes the Flash chip to the user-defined
+   * settings. Please note that the Flash chip is initialized with temporary
+   * settings during the boot phase to enable using different chips. In this
+   * stage, the Flash chip and the MSPI are reconfigured to the required
+   * final settings.
+   */
+
+  spi_flash_init_chip_state();
 
   __esp32s3_start();
 

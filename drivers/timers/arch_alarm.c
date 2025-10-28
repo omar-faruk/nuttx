@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/timers/arch_alarm.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -29,17 +31,6 @@
 #include <nuttx/timers/arch_alarm.h>
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define CONFIG_BOARD_LOOPSPER100USEC ((CONFIG_BOARD_LOOPSPERMSEC+5)/10)
-#define CONFIG_BOARD_LOOPSPER10USEC  ((CONFIG_BOARD_LOOPSPERMSEC+50)/100)
-#define CONFIG_BOARD_LOOPSPERUSEC    ((CONFIG_BOARD_LOOPSPERMSEC+500)/1000)
-
-#define timespec_to_nsec(ts) \
-    ((uint64_t)(ts)->tv_sec * NSEC_PER_SEC + (ts)->tv_nsec)
-
-/****************************************************************************
  * Private Data
  ****************************************************************************/
 
@@ -53,100 +44,37 @@ static clock_t g_current_tick;
  * Private Functions
  ****************************************************************************/
 
-static inline void timespec_from_nsec(FAR struct timespec *ts,
-                                      uint64_t nanoseconds)
-{
-  ts->tv_sec    = nanoseconds / NSEC_PER_SEC;
-  nanoseconds -= (uint64_t)ts->tv_sec * NSEC_PER_SEC;
-  ts->tv_nsec   = nanoseconds;
-}
-
-static void udelay_accurate(useconds_t microseconds)
-{
-  struct timespec now;
-  struct timespec end;
-  struct timespec delta;
-
-  ONESHOT_CURRENT(g_oneshot_lower, &now);
-  timespec_from_nsec(&delta, (uint64_t)microseconds * NSEC_PER_USEC);
-  clock_timespec_add(&now, &delta, &end);
-
-  while (clock_timespec_compare(&now, &end) < 0)
-    {
-      ONESHOT_CURRENT(g_oneshot_lower, &now);
-    }
-}
-
-static void udelay_coarse(useconds_t microseconds)
-{
-  volatile int i;
-
-  /* We'll do this a little at a time because we expect that the
-   * CONFIG_BOARD_LOOPSPERUSEC is very inaccurate during to truncation in
-   * the divisions of its calculation.  We'll use the largest values that
-   * we can in order to prevent significant error buildup in the loops.
-   */
-
-  while (microseconds > 1000)
-    {
-      for (i = 0; i < CONFIG_BOARD_LOOPSPERMSEC; i++)
-        {
-        }
-
-      microseconds -= 1000;
-    }
-
-  while (microseconds > 100)
-    {
-      for (i = 0; i < CONFIG_BOARD_LOOPSPER100USEC; i++)
-        {
-        }
-
-      microseconds -= 100;
-    }
-
-  while (microseconds > 10)
-    {
-      for (i = 0; i < CONFIG_BOARD_LOOPSPER10USEC; i++)
-        {
-        }
-
-      microseconds -= 10;
-    }
-
-  while (microseconds > 0)
-    {
-      for (i = 0; i < CONFIG_BOARD_LOOPSPERUSEC; i++)
-        {
-        }
-
-      microseconds--;
-    }
-}
-
 static void oneshot_callback(FAR struct oneshot_lowerhalf_s *lower,
                              FAR void *arg)
 {
   clock_t now = 0;
 
-#ifdef CONFIG_SCHED_TICKLESS
   ONESHOT_TICK_CURRENT(g_oneshot_lower, &now);
-  nxsched_alarm_tick_expiration(now);
+#ifdef CONFIG_SCHED_TICKLESS
+  nxsched_tick_expiration(now);
 #else
-  clock_t delta;
+  /* Start the next tick first, in order to minimize latency. Ideally
+   * the ONESHOT_TICK_START would also return the current tick so that
+   * the retrieving the current tick and starting the new one could be done
+   * atomically w. respect to a HW timer
+   */
 
-  do
+  ONESHOT_TICK_START(g_oneshot_lower, oneshot_callback, NULL, 1);
+
+  /* It is always an error if this progresses more than 1 tick at a time.
+   * That would break any timer based on wdog; such timers might timeout
+   * early. Add a DEBUGASSERT here to catch those errors. It is not added
+   * here by default, since it would break debugging. These errors
+   * would occur due to HW timers possibly running while CPU is being halted.
+   */
+
+  /* DEBUGASSERT(now - g_current_tick <= 1); */
+
+  while (now - g_current_tick > 0)
     {
-      clock_t next;
-
+      g_current_tick++;
       nxsched_process_timer();
-      next = ++g_current_tick;
-      ONESHOT_TICK_CURRENT(g_oneshot_lower, &now);
-      delta = next - now;
     }
-  while ((sclock_t)delta <= 0);
-
-  ONESHOT_TICK_START(g_oneshot_lower, oneshot_callback, NULL, delta);
 #endif
 }
 
@@ -157,7 +85,7 @@ static void oneshot_callback(FAR struct oneshot_lowerhalf_s *lower,
 void up_alarm_set_lowerhalf(FAR struct oneshot_lowerhalf_s *lower)
 {
 #ifdef CONFIG_SCHED_TICKLESS
-  clock_t ticks;
+  clock_t ticks = 0;
 #endif
 
   g_oneshot_lower = lower;
@@ -204,14 +132,13 @@ void up_alarm_set_lowerhalf(FAR struct oneshot_lowerhalf_s *lower)
  *
  ****************************************************************************/
 
-#ifdef CONFIG_CLOCK_TIMEKEEPING
 void weak_function up_timer_getmask(FAR clock_t *mask)
 {
   *mask = 0;
 
   if (g_oneshot_lower != NULL)
     {
-      clock_t maxticks;
+      clock_t maxticks = 0;
 
       ONESHOT_TICK_MAX_DELAY(g_oneshot_lower, &maxticks);
 
@@ -227,9 +154,7 @@ void weak_function up_timer_getmask(FAR clock_t *mask)
         }
     }
 }
-#endif
 
-#if defined(CONFIG_SCHED_TICKLESS) || defined(CONFIG_CLOCK_TIMEKEEPING)
 int weak_function up_timer_gettick(FAR clock_t *ticks)
 {
   int ret = -EAGAIN;
@@ -241,7 +166,18 @@ int weak_function up_timer_gettick(FAR clock_t *ticks)
 
   return ret;
 }
-#endif
+
+int weak_function up_timer_gettime(struct timespec *ts)
+{
+  int ret = -EAGAIN;
+
+  if (g_oneshot_lower != NULL)
+    {
+      ret = ONESHOT_CURRENT(g_oneshot_lower, ts);
+    }
+
+  return ret;
+}
 
 /****************************************************************************
  * Name: up_alarm_cancel
@@ -323,7 +259,7 @@ int weak_function up_alarm_tick_start(clock_t ticks)
 
   if (g_oneshot_lower != NULL)
     {
-      clock_t now;
+      clock_t now = 0;
       clock_t delta;
 
       ONESHOT_TICK_CURRENT(g_oneshot_lower, &now);
@@ -360,22 +296,22 @@ int weak_function up_alarm_tick_start(clock_t ticks)
  *   units.
  ****************************************************************************/
 
-#ifndef CONFIG_ARCH_PERF_EVENTS
+#ifndef CONFIG_ARCH_HAVE_PERF_EVENTS
 void up_perf_init(FAR void *arg)
 {
   UNUSED(arg);
 }
 
-unsigned long up_perf_gettime(void)
+clock_t up_perf_gettime(void)
 {
-  unsigned long ret = 0;
+  clock_t ret = 0;
 
   if (g_oneshot_lower != NULL)
     {
       struct timespec ts;
 
       ONESHOT_CURRENT(g_oneshot_lower, &ts);
-      ret = timespec_to_nsec(&ts);
+      ret = clock_time2nsec(&ts);
     }
 
   return ret;
@@ -386,44 +322,8 @@ unsigned long up_perf_getfreq(void)
   return NSEC_PER_SEC;
 }
 
-void up_perf_convert(unsigned long elapsed, FAR struct timespec *ts)
+void up_perf_convert(clock_t elapsed, FAR struct timespec *ts)
 {
-  timespec_from_nsec(ts, elapsed);
+  clock_nsec2time(ts, elapsed);
 }
 #endif /* CONFIG_ARCH_PERF_EVENTS */
-
-/****************************************************************************
- * Name: up_mdelay
- *
- * Description:
- *   Delay inline for the requested number of milliseconds.
- *   *** NOT multi-tasking friendly ***
- *
- ****************************************************************************/
-
-void weak_function up_mdelay(unsigned int milliseconds)
-{
-  up_udelay(USEC_PER_MSEC * milliseconds);
-}
-
-/****************************************************************************
- * Name: up_udelay
- *
- * Description:
- *   Delay inline for the requested number of microseconds.
- *
- *   *** NOT multi-tasking friendly ***
- *
- ****************************************************************************/
-
-void weak_function up_udelay(useconds_t microseconds)
-{
-  if (g_oneshot_lower != NULL)
-    {
-      udelay_accurate(microseconds);
-    }
-  else /* Oneshot timer hasn't been initialized yet */
-    {
-      udelay_coarse(microseconds);
-    }
-}

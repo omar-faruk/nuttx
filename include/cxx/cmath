@@ -1,6 +1,8 @@
 //***************************************************************************
 // include/cxx/cmath
 //
+// SPDX-License-Identifier: Apache-2.0
+//
 // Licensed to the Apache Software Foundation (ASF) under one or more
 // contributor license agreements.  See the NOTICE file distributed with
 // this work for additional information regarding copyright ownership.  The
@@ -54,6 +56,7 @@ namespace std
   using ::cosf;
   using ::coshf;
   using ::expf;
+  using ::expm1f;
   using ::fabsf;
   using ::floorf;
   using ::fmodf;
@@ -64,6 +67,7 @@ namespace std
   using ::log10f;
   using ::log2f;
   using ::modff;
+  using ::rintf;
   using ::roundf;
   using ::powf;
   using ::sinf;
@@ -107,6 +111,7 @@ namespace std
   using ::cos;
   using ::cosh;
   using ::exp;
+  using ::expm1;
   using ::fabs;
   using ::floor;
   using ::fmod;
@@ -117,6 +122,7 @@ namespace std
   using ::log10;
   using ::log2;
   using ::modf;
+  using ::rint;
   using ::round;
   using ::pow;
   using ::sin;

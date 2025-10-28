@@ -1,6 +1,8 @@
 /****************************************************************************
  * net/netdev/netdev_findbyaddr.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -126,7 +128,8 @@ netdev_prefixlen_findby_lipv4addr(in_addr_t lipaddr, FAR int8_t *prefixlen)
 
               if (len > bestpref
 #ifdef CONFIG_NET_ARP
-                  || (len == bestpref && arp_find(lipaddr, NULL, dev) == OK)
+                  || (len == bestpref
+                      && arp_find(lipaddr, NULL, dev, true) == OK)
 #endif
                   )
                 {

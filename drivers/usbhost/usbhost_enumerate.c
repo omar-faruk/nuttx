@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/usbhost/usbhost_enumerate.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -426,7 +428,7 @@ int usbhost_enumerate(FAR struct usbhost_hubport_s *hport,
       goto errout;
     }
 
-  nxsig_usleep(2 * 1000);
+  nxsched_usleep(2 * 1000);
 
   /* Assign the function address to the port */
 
@@ -507,7 +509,7 @@ int usbhost_enumerate(FAR struct usbhost_hubport_s *hport,
 
   /* Some devices may require some delay before initialization */
 
-  nxsig_usleep(100 * 1000);
+  nxsched_usleep(100 * 1000);
 
   /* Was the class identification information provided in the device
    * descriptor? Or do we need to find it in the interface descriptor(s)?

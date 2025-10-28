@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/arm64/src/imx9/imx9_clockconfig.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -30,15 +32,19 @@
 #include <sys/param.h>
 #include <sys/types.h>
 
+#include <arch/barriers.h>
 #include <arch/board/board.h>
 
-#include "barriers.h"
-
 #include "arm64_internal.h"
-#include "imx9_ccm.h"
-#include "imx9_clockconfig.h"
 
+#ifndef CONFIG_IMX9_CLK_OVER_SCMI
+
+#include "imx9_ccm.h"
 #include "hardware/imx9_ccm.h"
+
+#endif
+
+#include "imx9_clockconfig.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -48,16 +54,6 @@
 
 #define XTAL_FREQ 24000000u
 
-/* Common barrier */
-
-#define mb()       \
-  do               \
-    {              \
-      ARM64_DSB(); \
-      ARM64_ISB(); \
-    }              \
-  while (0)
-
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -66,6 +62,11 @@
 static int pll_init(uintptr_t reg, bool frac, struct pll_parms_s *parm)
 {
   uint32_t val;
+
+  if (!frac)
+    {
+      modifyreg32(PLL_CLR(PLL_CTRL(reg)), 0, PLL_CTRL_HW_CTRL_SEL);
+    }
 
   /* Bypass and disable PLL */
 
@@ -80,14 +81,15 @@ static int pll_init(uintptr_t reg, bool frac, struct pll_parms_s *parm)
 
   putreg32(val, PLL_DIV(reg));
 
-  /* Disable spread spectrum */
-
-  putreg32(PLL_SPREAD_SPECTRUM_ENABLE, PLL_CLR(PLL_SPREAD_SPECTRUM(reg)));
-
   /* Set the fractional parts */
 
   if (frac)
     {
+      /* Disable spread spectrum */
+
+      putreg32(PLL_SPREAD_SPECTRUM_ENABLE,
+               PLL_CLR(PLL_SPREAD_SPECTRUM(reg)));
+
       putreg32(PLL_NUMERATOR_MFN(parm->mfn), PLL_NUMERATOR(reg));
       putreg32(PLL_DENOMINATOR_MFD(parm->mfd), PLL_DENOMINATOR(reg));
     }
@@ -95,7 +97,7 @@ static int pll_init(uintptr_t reg, bool frac, struct pll_parms_s *parm)
   /* Power it back up and wait for lock */
 
   putreg32(PLL_CTRL_POWERUP, PLL_SET(PLL_CTRL(reg)));
-  mb();
+  UP_MB();
 
   while (!(getreg32(PLL_PLL_STATUS(reg)) & PLL_PLL_STATUS_PLL_LOCK));
 
@@ -103,11 +105,12 @@ static int pll_init(uintptr_t reg, bool frac, struct pll_parms_s *parm)
 
   putreg32(PLL_CTRL_CLKMUX_EN, PLL_SET(PLL_CTRL(reg)));
   putreg32(PLL_CTRL_CLKMUX_BYPASS, PLL_CLR(PLL_CTRL(reg)));
-  mb();
+  UP_MB();
 
   return OK;
 }
 
+#ifdef CONFIG_IMX9_CFG_PLLS
 static int pll_pfd_init(uintptr_t reg, int pfd, struct pfd_parms_s *pfdparm)
 {
   uint32_t ctrl;
@@ -162,7 +165,7 @@ static int pll_pfd_init(uintptr_t reg, int pfd, struct pfd_parms_s *pfdparm)
   /* Enable DFS and wait for lock */
 
   putreg32(PLL_DFS_ENABLE, PLL_SET(ctrl));
-  mb();
+  UP_MB();
 
   /* Wait until the clock output is valid */
 
@@ -171,11 +174,135 @@ static int pll_pfd_init(uintptr_t reg, int pfd, struct pfd_parms_s *pfdparm)
   /* Then disable bypass */
 
   putreg32(PLL_DFS_BYPASS_EN, PLL_CLR(ctrl));
-  mb();
+  UP_MB();
 
   return OK;
 }
+#endif /* CONFIG_IMX9_CFG_PLLS */
 #endif
+
+#ifdef CONFIG_IMX9_CLK_OVER_SCMI
+
+/****************************************************************************
+ * Name: imx9_sm_getipfreq
+ *
+ * Description:
+ *   This function get the clock rate
+ *
+ * Input Parameters:
+ *  clk - The clock to be get the rate
+ *
+ * Returned Value:
+ *   rate is returned on success; a negated errno value is returned on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+static int imx9_sm_getipfreq(scmi_clock_t *clk)
+{
+  scmi_clock_rate_t rate =
+    {
+      0, 0
+    };
+
+  uint32_t channel  = clk->channel;
+  uint32_t clock_id = clk->clk_id;
+  int status;
+
+  status = imx9_scmi_get_clock_rate(channel, clock_id, &rate);
+  if (status < 0)
+    {
+      return status;
+    }
+
+  return rate.lower;
+}
+
+/****************************************************************************
+ * Name: imx9_sm_setrootclock
+ *
+ * Description:
+ *   This function set root for clock
+ *
+ * Input Parameters:
+ *  clk - The clock to be set root
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+static int imx9_sm_setrootclock(scmi_clock_t *clk)
+{
+  scmi_clock_rate_t rate =
+    {
+      0, 0
+    };
+
+  uint32_t channel        = clk->channel;
+  uint32_t clock_id       = clk->clk_id;
+  uint32_t pclk_id        = clk->pclk_id;
+  uint32_t div            = clk->div;
+  uint32_t attributes     = clk->attributes;
+  uint32_t oem_config_val = clk->oem_config_val;
+  uint32_t flags          = clk->flags;
+  uint32_t old_pclk_id    = 0; /* parent clock id */
+  uint64_t src_rate, root_rate;
+  int status;
+
+  if (div == 0)
+    {
+      return -EINVAL;
+    }
+
+  status = imx9_scmi_get_clock_parent(channel, clock_id, &old_pclk_id);
+  if (status != 0)
+    {
+      return status;
+    }
+
+  if (old_pclk_id != pclk_id)
+    {
+      status = imx9_scmi_set_clock_parent(channel, clock_id, pclk_id);
+      if (status != 0)
+        {
+          return status;
+        }
+    }
+
+  status = imx9_scmi_get_clock_rate(channel, pclk_id, &rate);
+  if (status != 0)
+    {
+      return status;
+    }
+
+  src_rate = rate.upper;
+  src_rate = (src_rate << 32);
+  src_rate |= rate.lower;
+
+  root_rate = src_rate / div;
+
+  rate.lower = root_rate & SCMI_CLOCK_RATE_MASK;
+  rate.upper = (root_rate >> 32) & SCMI_CLOCK_RATE_MASK;
+
+  status = imx9_scmi_set_clock_rate(channel, clock_id, flags, rate);
+  if (status != 0)
+    {
+      return status;
+    }
+
+  status = imx9_scmi_set_clock_config(channel, clock_id, attributes,
+                                      oem_config_val);
+  if (status != 0)
+    {
+      return status;
+    }
+
+  return OK;
+}
+
+#else
 
 static uint32_t calculate_vco_freq(const struct pll_parms_s *parm, bool frac)
 {
@@ -353,6 +480,34 @@ static uint32_t pll_pfd_freq_out(uintptr_t reg, int pfd, int div2)
 }
 
 /****************************************************************************
+ * Name: imx9_ccm_dram_disable_bypass
+ *
+ * Description:
+ *   Disable clock bypass
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *>
+ ****************************************************************************/
+
+#ifdef CONFIG_IMX9_BOOTLOADER
+static void imx9_dram_disable_bypass(void)
+{
+  /* Set DRAM APB to 133Mhz */
+
+  imx9_ccm_configure_root_clock(CCM_DRAM_APB_CLK_ROOT, SYS_PLL1PFD1DIV2, 3);
+
+  /* Switch from DRAM clock root from CCM to PLL */
+
+  imx9_ccm_shared_gpr_set(CCM_SHARED_GPR_DRAM_CLK,
+                          CCM_SHARED_GPR_DRAM_CLK_SEL_PLL);
+}
+#endif
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -369,16 +524,26 @@ static uint32_t pll_pfd_freq_out(uintptr_t reg, int pfd, int div2)
 void imx9_clockconfig(void)
 {
 #ifdef CONFIG_IMX9_BOOTLOADER
+  struct imx9_pll_cfg_s pll_arm    = ARMPLL_CFG;
+  struct imx9_pll_cfg_s pll_ddr    = DRAMPLL_CFG;
+#ifdef CONFIG_IMX9_CFG_PLLS
   struct imx9_pll_cfg_s pll_cfgs[] = PLL_CFGS;
   struct imx9_pfd_cfg_s pfd_cfgs[] = PFD_CFGS;
-  struct imx9_pll_cfg_s pll_arm    = ARMPLL_CFG;
   int i;
+#endif
 
   /* Set the CPU clock */
 
   putreg32(CCM_GPR_A55_CLK_SEL_PLL, IMX9_CCM_GPR_SH_CLR(CCM_SHARED_A55_CLK));
   pll_init(pll_arm.reg, pll_arm.frac, &pll_arm.parms);
   putreg32(CCM_GPR_A55_CLK_SEL_PLL, IMX9_CCM_GPR_SH_SET(CCM_SHARED_A55_CLK));
+
+  /* DRAM clk to 933 MHz */
+
+  pll_init(pll_ddr.reg, pll_ddr.frac, &pll_ddr.parms);
+  imx9_dram_disable_bypass();
+
+#ifdef CONFIG_IMX9_CFG_PLLS
 
   /* Run the PLL configuration */
 
@@ -396,6 +561,7 @@ void imx9_clockconfig(void)
       pll_pfd_init(cfg->reg, cfg->pfd, &cfg->parms);
     }
 #endif
+#endif /* CONFIG_IMX9_BOOTLOADER */
 }
 
 /****************************************************************************
@@ -476,6 +642,131 @@ int imx9_get_clock(int clkname, uint32_t *frequency)
   return OK;
 }
 
+#endif /* CONFIG_IMX9_CLK_OVER_SCMI */
+
+#ifdef CONFIG_IMX9_CLK_OVER_SCMI
+/****************************************************************************
+ * Name: imx9_configure_clock
+ *
+ * Description:
+ *   This function config and enable the clock
+ *
+ * Input Parameters:
+ *   config  - The clock config
+ *   enabled - If enable the clock
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+int imx9_configure_clock(clock_config_t config, bool enabled)
+{
+  scmi_clock_t clk =
+    {
+      0
+    };
+
+  clk.clk_id  = GET_ROOT(config) + ROOT_CLOCK_OFFSET;
+  clk.pclk_id = GET_ID(config);
+  clk.channel = SCMI_PLATFORM_A2P;
+  clk.div     = GET_DIV(config);
+
+  if (clk.div == 0)
+    {
+      /* Make sure div is always 1 */
+
+      clk.div = 1;
+    }
+
+  clk.attributes = SCMI_CLOCK_CONFIG_SET_ENABLE(enabled);
+  clk.flags      = SCMI_CLOCK_RATE_FLAGS_ROUND(SCMI_CLOCK_ROUND_AUTO);
+
+  return imx9_sm_setrootclock(&clk);
+}
+
+/****************************************************************************
+ * Name: imx9_get_rootclock
+ *
+ * Description:
+ *   This function returns the clock frequency of the specified root
+ *   functional clock.
+ *
+ * Input Parameters:
+ *   clkroot   - Identifies the peripheral clock of interest
+ *   frequency - The location where the peripheral clock frequency will be
+ *              returned
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+int imx9_get_rootclock(int clkroot, uint32_t *frequency)
+{
+  if (clkroot < CCM_CR_COUNT)
+    {
+      int ret = 0;
+
+      scmi_clock_t clk =
+        {
+          0
+        };
+
+      clk.clk_id  = (uint32_t)(clkroot + ROOT_CLOCK_OFFSET);
+      clk.channel = SCMI_PLATFORM_A2P;
+
+      ret = imx9_sm_getipfreq(&clk);
+
+      if (ret < 0)
+        {
+          return ret;
+        }
+      else
+        {
+          *frequency = ret;
+          return OK;
+        }
+    }
+
+  return -ENODEV;
+}
+
+/****************************************************************************
+ * Name: imx9_set_clock_freq
+ *
+ * Description:
+ *   This function set the clock frequency of the specified clock.
+ *
+ * Input Parameters:
+ *   clkid     - Identifies the peripheral clock of interest
+ *   frequency - The location where the peripheral clock frequency will be
+ *               set
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+int imx9_set_clock_freq(int clock_id, uint32_t frequency)
+{
+  scmi_clock_rate_t rate =
+    {
+      0, 0
+    };
+
+  rate.lower = frequency;
+
+  return imx9_scmi_set_clock_rate(SCMI_PLATFORM_A2P, clock_id,
+                                  SCMI_CLOCK_RATE_FLAGS_ROUND(
+                                  SCMI_CLOCK_ROUND_AUTO), rate);
+}
+
+#else
+
 /****************************************************************************
  * Name: imx9_get_rootclock
  *
@@ -524,3 +815,5 @@ int imx9_get_rootclock(int clkroot, uint32_t *frequency)
 
   return -ENODEV;
 }
+
+#endif /* CONFIG_IMX9_CLK_OVER_SCMI */

@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/arm/src/samv7/sam_mcan.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -53,6 +55,7 @@
 #include "sam_periphclks.h"
 #include "sam_gpio.h"
 #include "sam_mcan.h"
+#include "sam_chipid.h"
 
 #if defined(CONFIG_CAN) && defined(CONFIG_SAMV7_MCAN)
 
@@ -106,6 +109,8 @@
 #  ifndef CONFIG_ARMV7M_DCACHE_WRITETHROUGH
 #    warning !!! This driver will not work without CONFIG_ARMV7M_DCACHE_WRITETHROUGH=y!!!
 #  endif
+#else
+#  define MCAN_ALIGN_UP(n)  (n)
 #endif
 
 /* General Configuration ****************************************************/
@@ -144,10 +149,10 @@
                         (float)CONFIG_SAMV7_MCAN0_FBITRATE)) - 1))
 #  define MCAN0_DSJW   (CONFIG_SAMV7_MCAN0_FFSJW - 1)
 
-#  if MCAN0_DTSEG1 > 15
+#  if MCAN0_DTSEG1 > 31
 #    error Invalid MCAN0 DTSEG1
 #  endif
-#  if MCAN0_DTSEG2 > 7
+#  if MCAN0_DTSEG2 > 15
 #    error Invalid MCAN0 DTSEG2
 #  endif
 #  if MCAN0_DSJW > 3
@@ -412,13 +417,13 @@
                         (float)CONFIG_SAMV7_MCAN1_BITRATE)) - 1))
 #  define MCAN1_SJW    (CONFIG_SAMV7_MCAN1_FSJW - 1)
 
-#  if MCAN1_NTSEG1 > 63
+#  if MCAN1_TSEG1 > 63
 #    error Invalid MCAN1 NTSEG1
 #  endif
-#  if MCAN1_NTSEG2 > 15
+#  if MCAN1_TSEG2 > 15
 #    error Invalid MCAN1 NTSEG2
 #  endif
-#  if MCAN1_NSJW > 15
+#  if MCAN1_SJW > 15
 #    error Invalid MCAN1 NSJW
 #  endif
 
@@ -429,10 +434,10 @@
                         (float)CONFIG_SAMV7_MCAN1_FBITRATE)) - 1))
 #  define MCAN1_DSJW   (CONFIG_SAMV7_MCAN1_FFSJW - 1)
 
-#if MCAN1_DTSEG1 > 15
+#if MCAN1_DTSEG1 > 31
 #  error Invalid MCAN1 DTSEG1
 #endif
-#if MCAN1_DTSEG2 > 7
+#if MCAN1_DTSEG2 > 15
 #  error Invalid MCAN1 DTSEG2
 #endif
 #if MCAN1_DSJW > 3
@@ -987,14 +992,30 @@ static const struct can_ops_s g_mcanops =
 
 #ifdef CONFIG_SAMV7_MCAN0
 
-/* MCAN0 message RAM allocation */
+/* MCAN0 message RAM allocation. The RAM is initialized to zeroes to ensure
+ * valid parity/ECC checksums. This should avoid possible BEC or BEU
+ * interrupts according to MCAN manual.
+ *
+ * The message RAM is also located in .mcan section that should be placed
+ * at the beginning of .data section in linker script. The CAN controller
+ * seems to incorrectly handle lower 16 bits address overflow. For example
+ * message RAM starting at 0x2040fc20 would not work for buffers that
+ * go beyond 0x20410000. The same issue would occur even if TX buffers
+ * would start directly at 0x20410000. The upper 16 bits would still have
+ * 0x2040 value because of RX buffers located in 0x2040ffff range. The
+ * section ensures the RAM starts at the beginning of the data section and
+ * thus overflow should not occur.
+ */
 
 static uint32_t g_mcan0_msgram[MCAN0_MSGRAM_WORDS]
+  locate_data(".mcan")
 #ifdef CONFIG_ARCH_DCACHE
-  __attribute__((aligned(MCAN_ALIGN)));
-#else
-  ;
+  __attribute__((aligned(MCAN_ALIGN)))
 #endif
+  =
+    {
+      0
+    };
 
 /* Constant configuration */
 
@@ -1086,14 +1107,30 @@ static struct can_dev_s g_mcan0dev =
 
 #ifdef CONFIG_SAMV7_MCAN1
 
-/* MCAN1 message RAM allocation */
+/* MCAN1 message RAM allocation. The RAM is initialized to zeroes to ensure
+ * valid parity/ECC checksums. This should avoid possible BEC or BEU
+ * interrupts according to MCAN manual.
+ *
+ * The message RAM is also located in .mcan section that should be placed
+ * at the beginning of .data section in linker script. The CAN controller
+ * seems to incorrectly handle lower 16 bits address overflow. For example
+ * message RAM starting at 0x2040fc20 would not work for buffers that
+ * go beyond 0x20410000. The same issue would occur even if TX buffers
+ * would start directly at 0x20410000. The upper 16 bits would still have
+ * 0x2040 value because of RX buffers located in 0x2040ffff range. The
+ * section ensures the RAM starts at the beginning of the data section and
+ * thus overflow should not occur.
+ */
 
 static uint32_t g_mcan1_msgram[MCAN1_MSGRAM_WORDS]
+  locate_data(".mcan")
 #ifdef CONFIG_ARCH_DCACHE
-  __attribute__((aligned(MCAN_ALIGN)));
-#else
-  ;
+  __attribute__((aligned(MCAN_ALIGN)))
 #endif
+  =
+    {
+      0
+    };
 
 /* MCAN1 constant configuration */
 
@@ -2650,33 +2687,70 @@ static int mcan_ioctl(struct can_dev_s *dev, int cmd, unsigned long arg)
 
           DEBUGASSERT(bt != NULL);
 
-          regval       = mcan_getreg(priv, SAM_MCAN_NBTP_OFFSET);
-
-          if (priv->rev == 0)
+#ifdef CONFIG_CAN_FD
+          if (bt->type == CAN_BITTIMING_DATA)
             {
-              /* Revision A */
+              if (priv->rev == 0)
+                {
+                  /* Revision A */
 
-              bt->bt_sjw   = ((regval & MCAN_REVA_BTP_SJW_MASK) >>
-                              MCAN_REVA_BTP_SJW_SHIFT) + 1;
-              bt->bt_tseg1 = ((regval & MCAN_REVA_BTP_TSEG1_MASK) >>
-                              MCAN_REVA_BTP_TSEG1_SHIFT) + 1;
-              bt->bt_tseg2 = ((regval & MCAN_REVA_BTP_TSEG2_MASK) >>
-                              MCAN_REVA_BTP_TSEG2_SHIFT) + 1;
-              brp          = ((regval & MCAN_REVA_BTP_BRP_MASK) >>
-                              MCAN_REVA_BTP_BRP_SHIFT) + 1;
+                  regval       = mcan_getreg(priv,
+                                  SAM_MCAN_REVA_FBTP_OFFSET);
+                  bt->bt_sjw   = ((regval & MCAN_REVA_FBTP_FSJW_MASK) >>
+                                  MCAN_REVA_FBTP_FSJW_SHIFT) + 1;
+                  bt->bt_tseg1 = ((regval & MCAN_REVA_FBTP_FTSEG1_MASK) >>
+                                  MCAN_REVA_FBTP_FTSEG1_SHIFT) + 1;
+                  bt->bt_tseg2 = ((regval & MCAN_REVA_FBTP_FTSEG2_MASK) >>
+                                  MCAN_REVA_FBTP_FTSEG2_SHIFT) + 1;
+                  brp          = ((regval & MCAN_REVA_FBTP_FBRP_MASK) >>
+                                  MCAN_REVA_FBTP_FBRP_SHIFT) + 1;
+                }
+              else
+                {
+                  /* Revision B */
+
+                  regval       = mcan_getreg(priv, SAM_MCAN_DBTP_OFFSET);
+                  bt->bt_sjw   = ((regval & MCAN_DBTP_DSJW_MASK) >>
+                                  MCAN_DBTP_DSJW_SHIFT) + 1;
+                  bt->bt_tseg1 = ((regval & MCAN_DBTP_DTSEG1_MASK) >>
+                                  MCAN_DBTP_DTSEG1_SHIFT) + 1;
+                  bt->bt_tseg2 = ((regval & MCAN_DBTP_DTSEG2_MASK) >>
+                                  MCAN_DBTP_DTSEG2_SHIFT) + 1;
+                  brp          = ((regval & MCAN_DBTP_DBRP_MASK) >>
+                                  MCAN_DBTP_DBRP_SHIFT) + 1;
+                }
             }
           else
+#endif
             {
-              /* Revision B */
+              if (priv->rev == 0)
+                {
+                  /* Revision A */
 
-              bt->bt_sjw   = ((regval & MCAN_NBTP_NSJW_MASK) >>
-                              MCAN_NBTP_NSJW_SHIFT) + 1;
-              bt->bt_tseg1 = ((regval & MCAN_NBTP_NTSEG1_MASK) >>
-                              MCAN_NBTP_NTSEG1_SHIFT) + 1;
-              bt->bt_tseg2 = ((regval & MCAN_NBTP_NTSEG2_MASK) >>
-                              MCAN_NBTP_NTSEG2_SHIFT) + 1;
-              brp          = ((regval & MCAN_NBTP_NBRP_MASK) >>
-                              MCAN_NBTP_NBRP_SHIFT) + 1;
+                  regval       = mcan_getreg(priv, SAM_MCAN_REVA_BTP_OFFSET);
+                  bt->bt_sjw   = ((regval & MCAN_REVA_BTP_SJW_MASK) >>
+                                  MCAN_REVA_BTP_SJW_SHIFT) + 1;
+                  bt->bt_tseg1 = ((regval & MCAN_REVA_BTP_TSEG1_MASK) >>
+                                  MCAN_REVA_BTP_TSEG1_SHIFT) + 1;
+                  bt->bt_tseg2 = ((regval & MCAN_REVA_BTP_TSEG2_MASK) >>
+                                  MCAN_REVA_BTP_TSEG2_SHIFT) + 1;
+                  brp          = ((regval & MCAN_REVA_BTP_BRP_MASK) >>
+                                  MCAN_REVA_BTP_BRP_SHIFT) + 1;
+                }
+              else
+                {
+                  /* Revision B */
+
+                  regval       = mcan_getreg(priv, SAM_MCAN_NBTP_OFFSET);
+                  bt->bt_sjw   = ((regval & MCAN_NBTP_NSJW_MASK) >>
+                                  MCAN_NBTP_NSJW_SHIFT) + 1;
+                  bt->bt_tseg1 = ((regval & MCAN_NBTP_NTSEG1_MASK) >>
+                                  MCAN_NBTP_NTSEG1_SHIFT) + 1;
+                  bt->bt_tseg2 = ((regval & MCAN_NBTP_NTSEG2_MASK) >>
+                                  MCAN_NBTP_NTSEG2_SHIFT) + 1;
+                  brp          = ((regval & MCAN_NBTP_NBRP_MASK) >>
+                                  MCAN_NBTP_NBRP_SHIFT) + 1;
+                }
             }
 
           bt->bt_baud  = SAMV7_MCANCLK_FREQUENCY / brp /
@@ -2733,17 +2807,41 @@ static int mcan_ioctl(struct can_dev_s *dev, int cmd, unsigned long arg)
           /* Save the value of the new bit timing register */
 
           flags = enter_critical_section();
-          if (priv->rev == 0)
+#ifdef CONFIG_CAN_FD
+          if (bt->type == CAN_BITTIMING_DATA)
             {
-              priv->btp = MCAN_REVA_BTP_BRP(brp) |
-                          MCAN_REVA_BTP_TSEG1(tseg1) |
-                          MCAN_REVA_BTP_TSEG2(tseg2) |
-                          MCAN_REVA_BTP_SJW(sjw);
+              if (priv->rev == 0)
+                {
+                  priv->fbtp = MCAN_REVA_FBTP_FBRP(brp) |
+                               MCAN_REVA_FBTP_FTSEG1(tseg1) |
+                               MCAN_REVA_FBTP_FTSEG2(tseg2) |
+                               MCAN_REVA_FBTP_FSJW(sjw);
+                }
+              else
+                {
+                  priv->fbtp = MCAN_DBTP_DBRP(brp) |
+                               MCAN_DBTP_DTSEG1(tseg1) |
+                               MCAN_DBTP_DTSEG2(tseg2) |
+                               MCAN_DBTP_DSJW(sjw);
+                }
             }
           else
+#endif
             {
-              priv->btp = MCAN_NBTP_NBRP(brp) | MCAN_NBTP_NTSEG1(tseg1) |
-                          MCAN_NBTP_NTSEG2(tseg2) | MCAN_NBTP_NSJW(sjw);
+              if (priv->rev == 0)
+                {
+                  priv->btp = MCAN_REVA_BTP_BRP(brp) |
+                              MCAN_REVA_BTP_TSEG1(tseg1) |
+                              MCAN_REVA_BTP_TSEG2(tseg2) |
+                              MCAN_REVA_BTP_SJW(sjw);
+                }
+              else
+                {
+                  priv->btp = MCAN_NBTP_NBRP(brp) |
+                              MCAN_NBTP_NTSEG1(tseg1) |
+                              MCAN_NBTP_NTSEG2(tseg2) |
+                              MCAN_NBTP_NSJW(sjw);
+                }
             }
 
           /* We need to reset to instantiate the new timing.  Save
@@ -2958,16 +3056,10 @@ static int mcan_send(struct can_dev_s *dev, struct can_msg_s *msg)
    * not full and cannot become full at least until we add our packet to
    * the FIFO.
    *
-   * We can't get exclusive access to MCAN resources here because that
-   * lock the MCAN while we wait for a free buffer.  Instead, the
-   * scheduler is locked here momentarily.  See discussion in
-   * mcan_buffer_reserve() for an explanation.
-   *
    * REVISIT: This needs to be extended in order to handler case where
    * the MCAN device was opened O_NONBLOCK.
    */
 
-  sched_lock();
   mcan_buffer_reserve(priv);
 
   /* Get exclusive access to the MCAN peripheral */
@@ -2976,11 +3068,8 @@ static int mcan_send(struct can_dev_s *dev, struct can_msg_s *msg)
   if (ret < 0)
     {
       mcan_buffer_release(priv);
-      sched_unlock();
       return ret;
     }
-
-  sched_unlock();
 
   /* Get our reserved Tx FIFO/queue put index */
 
@@ -3422,7 +3511,7 @@ static void mcan_error(struct can_dev_s *dev, uint32_t status)
 #ifdef CONFIG_CAN_EXTID
       hdr.ch_extid  = 0;
 #endif
-      hdr.ch_unused = 0;
+      hdr.ch_tcf    = 0;
 
       /* And provide the error report to the upper half logic */
 
@@ -3465,6 +3554,7 @@ static void mcan_receive(struct can_dev_s *dev, uint32_t *rxbuffer,
 
   nbytes = (nwords << 2);
   up_invalidate_dcache((uintptr_t)rxbuffer, (uintptr_t)rxbuffer + nbytes);
+  UNUSED(nbytes);
 
   /* Format the CAN header */
 
@@ -3474,9 +3564,9 @@ static void mcan_receive(struct can_dev_s *dev, uint32_t *rxbuffer,
   reginfo("R0: %08" PRIx32 "\n", regval);
 
 #ifdef CONFIG_CAN_ERRORS
-  hdr.ch_error  = 0;
+  hdr.ch_error = 0;
 #endif
-  hdr.ch_unused = 0;
+  hdr.ch_tcf   = 0;
 
   if ((regval & BUFFER_R0_RTR) != 0)
     {
@@ -4291,8 +4381,7 @@ struct can_dev_s *sam_mcan_initialize(int port)
 
       /* Get the revision of the chip (A or B) */
 
-      regval = getreg32(SAM_CHIPID_CIDR);
-      priv->rev = regval & CHIPID_CIDR_VERSION_MASK;
+      priv->rev = sam_has_revb_periphs();
 
       /* Set the initial bit timing.  This might change subsequently
        * due to IOCTL command processing.
@@ -4305,17 +4394,12 @@ struct can_dev_s *sam_mcan_initialize(int port)
           priv->btp  = priv->config->btp;
           priv->fbtp = priv->config->fbtp;
         }
-      else if (priv->rev == 1)
+      else
         {
           /* Revision B */
 
           priv->btp  = priv->config->nbtp;
           priv->fbtp = priv->config->dbtp;
-        }
-      else
-        {
-          canerr("ERROR: Incorrect chip revision: %d\n", priv->rev);
-          return NULL;
         }
 
       /* And put the hardware in the initial state */

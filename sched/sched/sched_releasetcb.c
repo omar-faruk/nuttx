@@ -1,6 +1,8 @@
 /****************************************************************************
  * sched/sched/sched_releasetcb.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -44,7 +46,7 @@
  * Name:  nxsched_releasepid
  *
  * Description:  When a task is destroyed, this function must
- * be called to make its process ID available for re-use.
+ * be called to make its process ID available for reuse.
  ****************************************************************************/
 
 static void nxsched_releasepid(pid_t pid)
@@ -105,6 +107,10 @@ int nxsched_release_tcb(FAR struct tcb_s *tcb, uint8_t ttype)
 
   if (tcb)
     {
+      /* Released tcb shouldn't on any list */
+
+      DEBUGASSERT(tcb->flink == NULL && tcb->blink == NULL);
+
 #ifndef CONFIG_DISABLE_POSIX_TIMERS
       /* Release any timers that the task might hold.  We do this
        * before release the PID because it may still be trying to

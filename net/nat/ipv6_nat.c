@@ -1,6 +1,8 @@
 /****************************************************************************
  * net/nat/ipv6_nat.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -653,7 +655,7 @@ void ipv6_nat_inbound(FAR struct net_driver_s *dev,
  * Returned Value:
  *   Zero is returned if NAT is successfully applied, or is not enabled for
  *   this packet;
- *   A negated errno value is returned if error occured.
+ *   A negated errno value is returned if error occurred.
  *
  ****************************************************************************/
 

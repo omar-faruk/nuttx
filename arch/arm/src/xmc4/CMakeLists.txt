@@ -1,6 +1,8 @@
 # ##############################################################################
 # arch/arm/src/xmc4/CMakeLists.txt
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed to the Apache Software Foundation (ASF) under one or more contributor
 # license agreements.  See the NOTICE file distributed with this work for
 # additional information regarding copyright ownership.  The ASF licenses this
@@ -49,6 +51,14 @@ endif()
 
 if(CONFIG_XMC4_USCI_SPI)
   list(APPEND SRCS xmc4_spi.c)
+endif()
+
+if(CONFIG_XMC4_USCI_I2C)
+  list(APPEND SRCS xmc4_i2c.c)
+endif()
+
+if(CONFIG_XMC4_PWM)
+  list(APPEND SRCS xmc4_pwm.c)
 endif()
 
 target_sources(arch PRIVATE ${SRCS})

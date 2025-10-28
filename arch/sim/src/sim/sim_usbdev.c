@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/sim/src/sim/sim_usbdev.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -851,7 +853,7 @@ static struct sim_ep_s *sim_ep_reserve(struct sim_usbdev_s *priv,
  *
  * Description:
  *   The endpoint is no long in-used.  It will be un-reserved and can be
- *   re-used if needed.
+ *   reused if needed.
  *
  ****************************************************************************/
 

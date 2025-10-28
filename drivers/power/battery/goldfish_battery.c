@@ -1,6 +1,8 @@
 /****************************************************************************
  * drivers/power/battery/goldfish_battery.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -25,8 +27,10 @@
 #include <stdint.h>
 #include <errno.h>
 #include <debug.h>
-#include <nuttx/nuttx.h>
+
+#include <nuttx/arch.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/nuttx.h>
 #include <nuttx/power/battery_gauge.h>
 #include <nuttx/power/battery_ioctl.h>
 
@@ -229,11 +233,11 @@ static int goldfish_battery_temp(FAR struct battery_gauge_dev_s *dev,
   int32_t regval;
   float temp;
 
-  /* BATTERY_TEMP units is 0.1 celsuis */
+  /* BATTERY_TEMP units is 0.1 celsius */
 
   regval = GOLDFISH_BATTERY_READ(data, BATTERY_TEMP);
 
-  /* convert to unit celsuis and fill b16_t */
+  /* convert to unit celsius and fill b16_t */
 
   temp = regval / 10.0f;
   *value = ftob8(temp);
@@ -321,8 +325,9 @@ int goldfish_battery_register(FAR void *regs, int irq)
       goto fail;
     }
 
-  GOLDFISH_BATTERY_WRITE(data, BATTERY_INT_ENABLE, BATTERY_INT_MASK);
   up_enable_irq(data->irq);
+  GOLDFISH_BATTERY_WRITE(data, BATTERY_INT_ENABLE, BATTERY_INT_MASK);
+
   batinfo("goldfish_battery_register over");
   return 0;
 fail:

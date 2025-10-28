@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/arm64/src/imx9/imx9_lowputc.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -25,7 +27,7 @@
 #include <nuttx/config.h>
 
 #include <stdint.h>
-#include <fixedmath.h>
+#include <stdlib.h>
 #include <assert.h>
 #include <errno.h>
 
@@ -49,7 +51,7 @@
 /* Configuration ************************************************************/
 
 #if defined(CONFIG_LPUART1_SERIAL_CONSOLE)
-#  define IMX9_CONSOLE_DEVOFF   0
+#  define IMX9_CONSOLE_DEVNUM   0
 #  define IMX9_CONSOLE_BASE     IMX9_LPUART1_BASE
 #  define IMX9_CONSOLE_BAUD     CONFIG_LPUART1_BAUD
 #  define IMX9_CONSOLE_BITS     CONFIG_LPUART1_BITS
@@ -106,8 +108,6 @@
 #  define IMX9_CONSOLE_2STOP    CONFIG_LPUART8_2STOP
 #endif
 
-#define ABS(n)     (((n) < 0) ? -(n) : (n))
-
 /* Clocking *****************************************************************/
 
 /* Functional clocking is provided via the  PCC.  The PCC clocking must
@@ -146,6 +146,7 @@ static const struct uart_config_s g_console_config =
 void imx9_lowsetup(void)
 {
 #ifndef CONFIG_SUPPRESS_LPUART_CONFIG
+#ifndef CONFIG_ARCH_CHIP_IMX95
 
 #ifdef CONFIG_IMX9_LPUART1
   /* Configure LPUART1 pins: RXD and TXD.  Also configure RTS and CTS if flow
@@ -203,14 +204,14 @@ void imx9_lowsetup(void)
    * control is enabled.
    */
 
-  imx9_iomux_configure(LPUART4_RX);
-  imx9_iomux_configure(LPUART4_TX);
+  imx9_iomux_configure(MUX_LPUART4_RX);
+  imx9_iomux_configure(MUX_LPUART4_TX);
 #ifdef CONFIG_LPUART4_OFLOWCONTROL
-  imx9_iomux_configure(LPUART4_CTS);
+  imx9_iomux_configure(MUX_LPUART4_CTS);
 #endif
 #if ((defined(CONFIG_SERIAL_RS485CONTROL) && defined(CONFIG_LPUART4_RS485RTSCONTROL)) || \
      (defined(CONFIG_SERIAL_IFLOWCONTROL) && defined(CONFIG_LPUART4_IFLOWCONTROL)))
-  imx9_iomux_configure(LPUART4_RTS);
+  imx9_iomux_configure(MUX_LPUART4_RTS);
 #endif
 #endif
 
@@ -281,11 +282,12 @@ void imx9_lowsetup(void)
   imx9_iomux_configure(MUX_LPUART8_RTS);
 #endif
 #endif
+#endif
 
 #ifdef IMX9_CONSOLE_BASE
   /* Configure the serial console for initial, non-interrupt driver mode */
 
-  imx9_lpuart_configure(IMX9_CONSOLE_BASE, IMX9_CONSOLE_DEVOFF,
+  imx9_lpuart_configure(IMX9_CONSOLE_BASE, IMX9_CONSOLE_DEVNUM,
                         &g_console_config);
 #endif
 
@@ -309,17 +311,20 @@ int imx9_lpuart_configure(uint32_t base, int uartnum,
   uint32_t osr;
   uint32_t temp_osr;
   int temp_diff;
+  int configured_baud = config->baud;
   int calculated_baud;
   int baud_diff;
   uint32_t regval;
 
   /* Configure root clock to 24MHz OSC */
 
+#ifndef CONFIG_ARCH_CHIP_IMX95
   imx9_ccm_configure_root_clock(CCM_CR_LPUART1 + uartnum - 1, OSC_24M, 1);
 
   /* Enable peripheral clock */
 
   imx9_ccm_gate_on(CCM_LPCG_LPUART1 + uartnum - 1, true);
+#endif
 
   /* This LPUART instantiation uses a slightly different baud rate
    * calculation.  The idea is to use the best OSR (over-sampling rate)
@@ -330,7 +335,7 @@ int imx9_lpuart_configure(uint32_t base, int uartnum,
    * baud_diff iterate through the rest of the supported values of OSR
    */
 
-  baud_diff = config->baud;
+  baud_diff = configured_baud;
   osr       = 0;
   sbr       = 0;
 
@@ -338,7 +343,7 @@ int imx9_lpuart_configure(uint32_t base, int uartnum,
     {
       /* Calculate the temporary sbr value   */
 
-      temp_sbr = (lpuart_freq / (config->baud * temp_osr));
+      temp_sbr = (lpuart_freq / (configured_baud * temp_osr));
 
       /* Set temp_sbr to 1 if the sourceClockInHz can not satisfy the
        * desired baud rate.
@@ -352,15 +357,15 @@ int imx9_lpuart_configure(uint32_t base, int uartnum,
       /* Calculate the baud rate based on the temporary OSR and SBR values */
 
       calculated_baud = (lpuart_freq / (temp_osr * temp_sbr));
-      temp_diff       = ABS(calculated_baud - config->baud);
+      temp_diff       = abs(calculated_baud - configured_baud);
 
       /* Select the better value between srb and (sbr + 1) */
 
       calculated_baud = (lpuart_freq / (temp_osr * (temp_sbr + 1)));
       if (temp_diff >
-          ABS(calculated_baud - config->baud))
+          abs(calculated_baud - configured_baud))
         {
-          temp_diff = ABS(calculated_baud - config->baud);
+          temp_diff = abs(calculated_baud - configured_baud);
           temp_sbr++;
         }
 
@@ -372,7 +377,7 @@ int imx9_lpuart_configure(uint32_t base, int uartnum,
         }
     }
 
-  if (baud_diff > ((config->baud * 3) / 100))
+  if (baud_diff > ((configured_baud * 3) / 100))
     {
       /* Unacceptable baud rate difference of more than 3% */
 
@@ -387,6 +392,11 @@ int imx9_lpuart_configure(uint32_t base, int uartnum,
 
   regval &= ~LPUART_GLOBAL_RST;
   putreg32(regval, base + IMX9_LPUART_GLOBAL_OFFSET);
+
+  /* Enable RX and TX FIFOs */
+
+  putreg32(LPUART_FIFO_RXFE | LPUART_FIFO_TXFE,
+           base + IMX9_LPUART_FIFO_OFFSET);
 
   /* Construct MODIR register */
 
@@ -496,7 +506,7 @@ void arm64_lowputc(char ch)
     }
 
   /* If the character to output is a newline,
-   * then pre-pend a carriage return
+   * then prepend a carriage return.
    */
 
   if (ch == '\n')

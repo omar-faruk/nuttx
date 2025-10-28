@@ -1,6 +1,8 @@
 /****************************************************************************
  * boards/arm/rp2040/seeed-xiao-rp2040/src/rp2040_bringup.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -37,6 +39,10 @@
 #include "rp2040_common_bringup.h"
 #endif /* CONFIG_ARCH_BOARD_COMMON */
 
+#ifdef CONFIG_USERLED
+#  include <nuttx/leds/userled.h>
+#endif
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -58,6 +64,17 @@ int rp2040_bringup(void)
 #endif /* CONFIG_ARCH_BOARD_COMMON */
 
   /* --- Place any board specific bringup code here --- */
+
+#ifdef CONFIG_USERLED
+  /* Register the LED driver */
+
+  ret = userled_lower_initialize("/dev/userleds");
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, \
+      "ERROR: userled_lower_initialize() failed: %d\n", ret);
+    }
+#endif
 
   return OK;
 }

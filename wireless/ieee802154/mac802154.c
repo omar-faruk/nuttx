@@ -1,6 +1,8 @@
 /****************************************************************************
  * wireless/ieee802154/mac802154.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -2016,7 +2018,9 @@ static void mac802154_rxbeaconframe(FAR struct ieee802154_privmac_s *priv,
                     }
                   else if (priv->curr_op == MAC802154_OP_NONE)
                     {
-                      DEBUGASSERT(priv->opsem.semcount == 1);
+                      int sval;
+                      DEBUGASSERT(nxsem_get_value(&priv->opsem, &sval) == 0
+                                  && sval == 1);
                       nxsem_wait_uninterruptible(&priv->opsem);
                       priv->curr_op = MAC802154_OP_AUTOEXTRACT;
                       priv->curr_cmd = IEEE802154_CMD_DATA_REQ;

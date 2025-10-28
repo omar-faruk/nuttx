@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/sim/src/sim/posix/sim_hostuart.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -30,6 +32,8 @@
 #include <termios.h>
 #include <poll.h>
 #include <errno.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 #include "sim_internal.h"
 
@@ -55,11 +59,16 @@ static void setrawmode(int fd)
 
   /* Switch to raw mode */
 
-  raw.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR |
-                   ICRNL | IXON);
-  raw.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-  raw.c_cflag &= ~(CSIZE | PARENB);
-  raw.c_cflag |= CS8;
+  cfmakeraw(&raw);
+
+  /* Disable output processing, We need to exclude stdout to prevent the
+   * terminal configuration from being changed after an abnormal exit.
+   */
+
+  if (fd == 0)
+    {
+      raw.c_oflag |= OPOST;
+    }
 
   tcsetattr(fd, TCSANOW, &raw);
 }
@@ -87,15 +96,15 @@ void host_uart_start(void)
 {
   /* Get the current stdin terminal mode */
 
-  tcgetattr(0, &g_cooked);
+  host_uninterruptible_no_return(tcgetattr, 0, &g_cooked);
 
   /* Put stdin into raw mode */
 
-  setrawmode(0);
+  host_uninterruptible_no_return(setrawmode, 0);
 
   /* Restore the original terminal mode before exit */
 
-  atexit(restoremode);
+  host_uninterruptible_no_return(atexit, restoremode);
 }
 
 /****************************************************************************
@@ -106,16 +115,12 @@ int host_uart_open(const char *pathname)
 {
   int fd;
 
-  fd = open(pathname, O_RDWR | O_NONBLOCK);
+  fd = host_uninterruptible_errno(open, pathname, O_RDWR | O_NONBLOCK);
   if (fd >= 0)
     {
       /* keep raw mode */
 
-      setrawmode(fd);
-    }
-  else
-    {
-      fd = -errno;
+      host_uninterruptible_no_return(setrawmode, fd);
     }
 
   return fd;
@@ -127,7 +132,7 @@ int host_uart_open(const char *pathname)
 
 void host_uart_close(int fd)
 {
-  close(fd);
+  host_uninterruptible(close, fd);
 }
 
 /****************************************************************************
@@ -140,11 +145,11 @@ int host_uart_puts(int fd, const char *buf, size_t size)
 
   do
     {
-      ret = write(fd, buf, size);
+      ret = host_uninterruptible_errno(write, fd, buf, size);
     }
-  while (ret < 0 && errno == EINTR);
+  while (ret < 0 && ret == -EINTR);
 
-  return ret < 0 ? -errno : ret;
+  return ret;
 }
 
 /****************************************************************************
@@ -157,11 +162,11 @@ int host_uart_gets(int fd, char *buf, size_t size)
 
   do
     {
-      ret = read(fd, buf, size);
+      ret = host_uninterruptible_errno(read, fd, buf, size);
     }
-  while (ret < 0 && errno == EINTR);
+  while (ret < 0 && ret == -EINTR);
 
-  return ret < 0 ? -errno : ret;
+  return ret;
 }
 
 /****************************************************************************
@@ -173,12 +178,8 @@ int host_uart_getcflag(int fd, unsigned int *cflag)
   struct termios t;
   int ret;
 
-  ret = tcgetattr(fd, &t);
-  if (ret < 0)
-    {
-      ret = -errno;
-    }
-  else
+  ret = host_uninterruptible_errno(tcgetattr, fd, &t);
+  if (ret >= 0)
     {
       *cflag = t.c_cflag;
     }
@@ -195,16 +196,11 @@ int host_uart_setcflag(int fd, unsigned int cflag)
   struct termios t;
   int ret;
 
-  ret = tcgetattr(fd, &t);
+  ret = host_uninterruptible_errno(tcgetattr, fd, &t);
   if (!ret)
     {
       t.c_cflag = cflag;
-      ret = tcsetattr(fd, TCSANOW, &t);
-    }
-
-  if (ret < 0)
-    {
-      ret = -errno;
+      ret = host_uninterruptible_errno(tcsetattr, fd, TCSANOW, &t);
     }
 
   return ret;
@@ -220,7 +216,7 @@ bool host_uart_checkin(int fd)
 
   pfd.fd     = fd;
   pfd.events = POLLIN;
-  return poll(&pfd, 1, 0) == 1;
+  return host_uninterruptible(poll, &pfd, 1, 0) == 1;
 }
 
 /****************************************************************************
@@ -233,5 +229,18 @@ bool host_uart_checkout(int fd)
 
   pfd.fd     = fd;
   pfd.events = POLLOUT;
-  return poll(&pfd, 1, 0) == 1;
+  return host_uninterruptible(poll, &pfd, 1, 0) == 1;
+}
+
+/****************************************************************************
+ * Name: host_printf
+ ****************************************************************************/
+
+void host_printf(const char *fmt, ...)
+{
+  va_list ap;
+
+  va_start(ap, fmt);
+  vprintf(fmt, ap);
+  va_end(ap);
 }

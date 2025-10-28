@@ -1,6 +1,8 @@
 /****************************************************************************
  * sched/signal/sig_action.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -236,8 +238,16 @@ int nxsig_action(int signo, FAR const struct sigaction *act,
    * execution, no special precautions should be necessary.
    */
 
-  DEBUGASSERT(rtcb != NULL && rtcb->group != NULL);
+  DEBUGASSERT(rtcb != NULL);
+
   group = rtcb->group;
+
+  /* If the value of group is null, the task may have exited */
+
+  if (group == NULL)
+    {
+      return -EINVAL;
+    }
 
   /* Verify the signal number */
 
@@ -284,6 +294,7 @@ int nxsig_action(int signo, FAR const struct sigaction *act,
           oact->sa_handler = sigact->act.sa_handler;
           oact->sa_mask    = sigact->act.sa_mask;
           oact->sa_flags   = sigact->act.sa_flags;
+          oact->sa_user    = sigact->act.sa_user;
         }
       else
         {
@@ -380,7 +391,7 @@ int nxsig_action(int signo, FAR const struct sigaction *act,
   else
     {
       /* Do we still have a sigaction container from the previous setting?
-       * If so, then re-use for the new signal action.
+       * If so, then reuse for the new signal action.
        */
 
       if (sigact == NULL)

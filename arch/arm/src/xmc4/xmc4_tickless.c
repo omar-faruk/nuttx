@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/arm/src/xmc4/xmc4_tickless.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -238,7 +240,7 @@ void up_timer_initialize(void)
 
   /* Initialize Interval Timer
    *
-   * Ths timer is configured to be a oneshot timer, that has
+   * The timer is configured to be a oneshot timer, that has
    * a resolution that matches the USEC_PER_TICK, and
    * will be started in up_timer_start and uses its period
    * (not compare value) to trigger an interrupt.

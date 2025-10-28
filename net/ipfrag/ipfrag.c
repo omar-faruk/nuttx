@@ -1,6 +1,7 @@
 /****************************************************************************
  * net/ipfrag/ipfrag.c
- * Handling incoming IPv4 and IPv6 fragment input
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -171,8 +172,10 @@ ip_fragout_allocfragbuf(FAR struct iob_queue_s *fragq);
 
 static void ip_fragin_timerout_expiry(wdparm_t arg)
 {
-  ASSERT(g_wkfragtimeout.worker == NULL);
-  work_queue(IPFRAGWORK, &g_wkfragtimeout, ip_fragin_timerwork, NULL, 0);
+  if (g_wkfragtimeout.worker == NULL)
+    {
+      work_queue(IPFRAGWORK, &g_wkfragtimeout, ip_fragin_timerwork, NULL, 0);
+    }
 }
 
 /****************************************************************************
@@ -189,7 +192,7 @@ static void ip_fragin_timerout_expiry(wdparm_t arg)
 static void ip_fragin_timerwork(FAR void *arg)
 {
   clock_t curtick = clock_systime_ticks();
-  sclock_t interval;
+  sclock_t interval = 0;
   FAR sq_entry_t *entry;
   FAR sq_entry_t *entrynext;
   FAR struct ip_fragsnode_s *node;
@@ -938,7 +941,7 @@ int32_t ip_fragout_slice(FAR struct iob_s *iob, uint8_t domain, uint16_t mtu,
 
       UPDATE_IOB(reorg, CONFIG_NET_LL_GUARDSIZE, unfraglen);
 
-      /* Copy L3 header(include unfragmentable extention header if present)
+      /* Copy L3 header (include unfragmentable extension header if present)
        * from original I/O buffer
        */
 
@@ -1063,7 +1066,7 @@ int32_t ip_frag_uninit(void)
 {
   FAR struct net_driver_s *dev;
 
-  ninfo("Uninitialize frag proccessing module\n");
+  ninfo("Uninitialize frag processing module\n");
 
   /* Stop work queue */
 

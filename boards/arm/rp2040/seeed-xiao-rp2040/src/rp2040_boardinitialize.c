@@ -1,6 +1,8 @@
 /****************************************************************************
  * boards/arm/rp2040/seeed-xiao-rp2040/src/rp2040_boardinitialize.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -65,9 +67,17 @@ void rp2040_boardearlyinitialize(void)
 
   /* Set board LED pin */
 
-  rp2040_gpio_init(BOARD_GPIO_LED_PIN);
-  rp2040_gpio_setdir(BOARD_GPIO_LED_PIN, true);
-  rp2040_gpio_put(BOARD_GPIO_LED_PIN, true);
+  rp2040_gpio_init(BOARD_GPIO_LED_PIN_R);
+  rp2040_gpio_init(BOARD_GPIO_LED_PIN_G);
+  rp2040_gpio_init(BOARD_GPIO_LED_PIN_B);
+
+  rp2040_gpio_setdir(BOARD_GPIO_LED_PIN_R, true);
+  rp2040_gpio_setdir(BOARD_GPIO_LED_PIN_G, true);
+  rp2040_gpio_setdir(BOARD_GPIO_LED_PIN_B, true);
+
+  rp2040_gpio_put(BOARD_GPIO_LED_PIN_R, true);
+  rp2040_gpio_put(BOARD_GPIO_LED_PIN_G, true);
+  rp2040_gpio_put(BOARD_GPIO_LED_PIN_B, true);
 }
 
 /****************************************************************************

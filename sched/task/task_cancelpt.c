@@ -1,6 +1,8 @@
 /****************************************************************************
  * sched/task/task_cancelpt.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -160,7 +162,7 @@ bool nxnotify_cancellation(FAR struct tcb_s *tcb)
 
           else if (tcb->task_state == TSTATE_WAIT_SIG)
             {
-              nxsig_wait_irq(tcb, ECANCELED);
+              nxsig_wait_irq(tcb, SIG_CANCEL_TIMEOUT, SI_USER, ECANCELED);
             }
 
 #if !defined(CONFIG_DISABLE_MQUEUE) || !defined(CONFIG_DISABLE_MQUEUE_SYSV)

@@ -1,6 +1,8 @@
 /****************************************************************************
  * boards/xtensa/esp32s2/common/scripts/mcuboot_sections.ld
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -62,11 +64,13 @@ SECTIONS
   .flash.rodata :
   {
     _srodata = ABSOLUTE(.);
-    *(EXCLUDE_FILE (esp32s2_start.* loader.* esp32s2_region.*
+    *(EXCLUDE_FILE (esp32s2_start.* esp32s2_region.*
+                    *libarch.a:*esp_loader.*
                     *libarch.a:esp32s2_spiflash.*
                     *libarch.a:*cache_hal.* *libarch.a:*mmu_hal.*
                     *libarch.a:*mpu_hal.*) .rodata)
-    *(EXCLUDE_FILE (esp32s2_start.* loader.* esp32s2_region.*
+    *(EXCLUDE_FILE (esp32s2_start.* esp32s2_region.*
+                    *libarch.a:*esp_loader.*
                     *libarch.a:esp32s2_spiflash.*
                     *libarch.a:*cache_hal.* *libarch.a:*mmu_hal.*
                     *libarch.a:*mpu_hal.*) .rodata.*)
@@ -168,13 +172,15 @@ SECTIONS
     *(.iram1 .iram1.*)
     esp32s2_start.*(.literal .text .literal.* .text.*)
     esp32s2_region.*(.text .text.* .literal .literal.*)
-    loader.*(.text .text.* .literal .literal.*)
 
+    *libarch.a:*esp_loader.*(.text .text.* .literal .literal.*)
     *libarch.a:esp32s2_spiflash.*(.literal .text .literal.* .text.*)
     *libarch.a:*cache_hal.*(.text .text.* .literal .literal.*)
     *libarch.a:*uart_hal.*(.text .text.* .literal .literal.*)
     *libarch.a:*mpu_hal.*(.text .text.* .literal .literal.*)
     *libarch.a:*mmu_hal.*(.text .text.* .literal .literal.*)
+
+    *libc.a:sq_remlast.*(.literal .text .literal.* .text.*)
 
     /* align + add 16B for CPU dummy speculative instr. fetch */
 
@@ -248,8 +254,8 @@ SECTIONS
     *(.dram1 .dram1.*)
     esp32s2_start.*(.rodata .rodata.*)
     esp32s2_region.*(.rodata .rodata.*)
-    loader.*(.rodata .rodata.*)
 
+    *libarch.a:*esp_loader.*(.rodata .rodata.*)
     *libarch.a:esp32s2_spiflash.*(.rodata .rodata.*)
     *libarch.a:*cache_hal.*(.rodata .rodata.*)
     *libarch.a:*uart_hal.*(.rodata .rodata.*)
@@ -335,7 +341,9 @@ SECTIONS
   .rtc.data :
   {
     *(.rtc.data)
+    *(.rtc.data.*)
     *(.rtc.rodata)
+    *(.rtc.rodata.*)
 
    /* Whatever is left from the RTC memory is used as a special heap. */
 

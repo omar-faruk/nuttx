@@ -1,6 +1,8 @@
 /****************************************************************************
  * boards/x86_64/intel64/qemu-intel64/src/qemu_bringup.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -36,8 +38,28 @@
 #  include <nuttx/timers/oneshot.h>
 #endif
 
-#include "x86_64_internal.h"
+#ifdef CONFIG_PCI
+#  include <nuttx/pci/pci.h>
+#endif
+
+#ifdef CONFIG_VIDEO_FB
+#  include <nuttx/video/fb.h>
+#endif
+
 #include "qemu_intel64.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#ifdef CONFIG_ARCH_INTEL64_HPET_ALARM
+#  if CONFIG_ARCH_INTEL64_HPET_ALARM_CHAN != 0
+#    error this logic requires that HPET_ALARM_CHAN is set to 0
+#  endif
+#  define ONESHOT_TIMER 1
+#else
+#  define ONESHOT_TIMER 0
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -55,10 +77,10 @@ int qemu_bringup(void)
 
   int ret = OK;
 
-  /* Initialize the PCI bus */
-
 #ifdef CONFIG_PCI
-  x86_64_pci_init();
+  /* Register the PCI bus drivers */
+
+  pci_register_drivers();
 #endif
 
 #ifdef CONFIG_FS_PROCFS
@@ -72,10 +94,20 @@ int qemu_bringup(void)
 #endif
 
 #ifdef CONFIG_ONESHOT
-  os = oneshot_initialize(0, 10);
+  os = oneshot_initialize(ONESHOT_TIMER, 10);
   if (os)
     {
       oneshot_register("/dev/oneshot", os);
+    }
+#endif
+
+#ifdef CONFIG_VIDEO_FB
+  /* Initialize and register the framebuffer driver */
+
+  ret = fb_register(0, 0);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: fb_register() failed: %d\n", ret);
     }
 #endif
 

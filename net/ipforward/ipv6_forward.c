@@ -1,6 +1,8 @@
 /****************************************************************************
  * net/ipforward/ipv6_forward.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -434,7 +436,7 @@ static int ipv6_dev_forward(FAR struct net_driver_s *dev,
       fwd->f_iob = dev->d_iob;
 
       /* Decrement the TTL in the copy of the IPv6 header (retaining the
-       * original TTL in the sourcee to handle the broadcast case).  If the
+       * original TTL in the source to handle the broadcast case).  If the
        * TTL decrements to zero, then do not forward the packet.
        */
 

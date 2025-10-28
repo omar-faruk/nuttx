@@ -1,6 +1,8 @@
 ############################################################################
 # tools/esp32/Config.mk
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.  The
@@ -17,6 +19,12 @@
 # under the License.
 #
 ############################################################################
+
+# MCUBoot requires a region in flash for the E-Fuse virtual mode.
+# To avoid erasing this region, flash a dummy empty file to the
+# virtual E-Fuse offset.
+
+VIRTUAL_EFUSE_BIN := vefuse.bin
 
 # These are the macros that will be used in the NuttX make system to compile
 # and assemble source files and to insert the resulting object files into an
@@ -42,15 +50,7 @@ else ifeq ($(CONFIG_ESP32_FLASH_MODE_QOUT),y)
 	FLASH_MODE := qout
 endif
 
-ifeq ($(CONFIG_ESP32_FLASH_FREQ_80M),y)
-	FLASH_FREQ := 80m
-else ifeq ($(CONFIG_ESP32_FLASH_FREQ_40M),y)
-	FLASH_FREQ := 40m
-else ifeq ($(CONFIG_ESP32_FLASH_FREQ_26M),y)
-	FLASH_FREQ := 26m
-else ifeq ($(CONFIG_ESP32_FLASH_FREQ_20M),y)
-	FLASH_FREQ := 20m
-endif
+FLASH_FREQ := $(CONFIG_ESPRESSIF_FLASH_FREQ)
 
 ifeq ($(CONFIG_ESP32_FLASH_DETECT),y)
 	ESPTOOL_WRITEFLASH_OPTS := -fs detect -fm dio -ff $(FLASH_FREQ)
@@ -64,7 +64,15 @@ endif
 
 ESPTOOL_FLASH_OPTS := -fs $(FLASH_SIZE) -fm $(FLASH_MODE) -ff $(FLASH_FREQ)
 
+define MAKE_VIRTUAL_EFUSE_BIN
+	$(Q)if [ ! -f "$(VIRTUAL_EFUSE_BIN)" ]; then \
+		dd if=/dev/zero of=$(VIRTUAL_EFUSE_BIN) count=0 status=none; \
+	fi
+endef
+
 # Configure the variables according to build environment
+
+ESPTOOL_MIN_VERSION := 4.8.0
 
 ifdef ESPTOOL_BINDIR
 	ifeq ($(CONFIG_ESP32_APP_FORMAT_LEGACY),y)
@@ -99,6 +107,9 @@ ifeq ($(CONFIG_ESP32_APP_FORMAT_LEGACY),y)
 	APP_IMAGE      := nuttx.bin
 	FLASH_APP      := $(APP_OFFSET) $(APP_IMAGE)
 else ifeq ($(CONFIG_ESP32_APP_FORMAT_MCUBOOT),y)
+
+	ESPTOOL_BINS += $(CONFIG_ESPRESSIF_EFUSE_VIRTUAL_KEEP_IN_FLASH_OFFSET) $(VIRTUAL_EFUSE_BIN)
+
 	ifeq ($(CONFIG_ESP32_ESPTOOL_TARGET_PRIMARY),y)
 		VERIFIED   := --confirm
 		APP_OFFSET := $(CONFIG_ESP32_OTA_PRIMARY_SLOT_OFFSET)
@@ -124,6 +135,13 @@ else ifeq ($(CONFIG_ESP32_APP_FORMAT_MCUBOOT),y)
 	IMGTOOL_SIGN_ARGS := --pad $(VERIFIED) $(IMGTOOL_ALIGN_ARGS) -v 0 -s auto \
 		-H $(CONFIG_ESP32_APP_MCUBOOT_HEADER_SIZE) --pad-header \
 		-S $(CONFIG_ESP32_OTA_SLOT_SIZE)
+else
+#   CONFIG_ESPRESSIF_SIMPLE_BOOT
+
+	APP_OFFSET     := 0x1000
+	APP_IMAGE      := nuttx.bin
+	FLASH_APP      := $(APP_OFFSET) $(APP_IMAGE)
+	ESPTOOL_BINDIR := .
 endif
 
 ESPTOOL_BINS += $(FLASH_APP)
@@ -160,6 +178,7 @@ endef
 # MERGEBIN -- Merge raw binary files into a single file
 
 define MERGEBIN
+	@python3 tools/espressif/check_esptool.py -v $(ESPTOOL_MIN_VERSION)
 	$(Q) if [ -z $(ESPTOOL_BINDIR) ]; then \
 		echo "MERGEBIN error: Missing argument for binary files directory."; \
 		echo "USAGE: make ESPTOOL_BINDIR=<dir>"; \
@@ -227,13 +246,7 @@ else
 ifeq ($(CONFIG_ESP32_APP_FORMAT_LEGACY),y)
 define MKIMAGE
 	$(Q) echo "MKIMAGE: ESP32 binary"
-	$(Q) if ! esptool.py version 1>/dev/null 2>&1; then \
-		echo ""; \
-		echo "esptool.py not found.  Please run: \"pip install esptool==4.8.dev4\""; \
-		echo ""; \
-		echo "Run make again to create the nuttx.bin image."; \
-		exit 1; \
-	fi
+	@python3 tools/espressif/check_esptool.py -v $(ESPTOOL_MIN_VERSION)
 	$(Q) if [ -z $(FLASH_SIZE) ]; then \
 		echo "Missing Flash memory size configuration for the ESP32 chip."; \
 		exit 1; \
@@ -256,6 +269,19 @@ define MKIMAGE
 	$(Q) echo nuttx.bin >> nuttx.manifest
 	$(Q) echo "Generated: nuttx.bin (MCUboot compatible)"
 endef
+else
+define MKIMAGE
+	$(Q) echo "MKIMAGE: ESP32 binary"
+	@python3 tools/espressif/check_esptool.py -v $(ESPTOOL_MIN_VERSION)
+	$(Q) if [ -z $(FLASH_SIZE) ]; then \
+		echo "Missing Flash memory size configuration."; \
+		exit 1; \
+	fi
+	$(eval ELF2IMAGE_OPTS := $(if $(CONFIG_ESPRESSIF_SIMPLE_BOOT),--ram-only-header) -fs $(FLASH_SIZE) -fm $(FLASH_MODE) -ff $(FLASH_FREQ))
+	esptool.py -c esp32 elf2image $(ELF2IMAGE_OPTS) -o nuttx.bin nuttx
+	$(Q) echo nuttx.bin >> nuttx.manifest
+	$(Q) echo "Generated: nuttx.bin"
+endef
 endif
 endif
 
@@ -263,6 +289,7 @@ endif
 
 define POSTBUILD
 	$(call MKIMAGE)
+	$(if $(CONFIG_ESPRESSIF_BOOTLOADER_MCUBOOT),$(call MAKE_VIRTUAL_EFUSE_BIN))
 	$(if $(CONFIG_ESP32_MERGE_BINS),$(call MERGEBIN))
 endef
 

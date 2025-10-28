@@ -46,10 +46,83 @@ See include/nuttx/mtd/mtd.h for additional information.
 
    #. Get an instance of ``struct mtd_dev_s`` from the
       hardware-specific MTD device driver, and
-   #. Provide that instance to the initialization method of the
-      higher level device driver.
 
--  **Examples**: ``drivers/mtd/m25px.c`` and ``drivers/mtd/ftl.c``
+   #. Use the ``register_mtddriver`` interface to register the MTD drivers.
+
+-  **Examples**: ``drivers/mtd/m25px.c`` and ``boards/arm/sama5/sama5d4-ek/src/sam_at25.c``
+
+
+Registration Method
+===================
+
+The ``register_mtddriver`` function provides a unified interface for
+registering MTD devices. Upon registration, the MTD device will automatically
+incorporate FTL (Flash Translation Layer) and BCH (Block-to-Character conversion)
+wrappers during the ``open()`` process. This automatic wrapping obviates the
+need for legacy registration methods ``ftl_initialize()`` and
+``bchdev_register()`` in user code. Users can directly access the MTD device
+via standard file operations (e.g., ``open()``, ``read()``, ``write()``)
+after registration.
+
+- **Character Device Mode** (via ``open()``):
+  Enables byte-oriented access with both FTL and BCH layers applied
+  (requires ``CONFIG_BCH``).
+
+- **Block Device Mode** (via ``open_blockdriver()``):
+  Presents a block interface with only the FTL layer enabled
+
+  The functions register_partition_with_mtd() and register_mtdpartition()
+  are actually wrappers built on top of register_mtddriver(),
+  and they can be used to create sub-partition devices for MTD devices.
+
+  In scenarios where the FTL layer is not suitable for converting MTD to a
+  block device, alternatives like Dhara can be used instead.
+  To register a Dhara-backed block device: Use the ``dhara_initialize()``
+  function, passing the underlying  ``struct mtd_dev_s *dev``
+  as a parameter to create a Dhara block device instance.  Once Dhara is
+  initialized, register the block device using ``register_blockdriver()``
+  with the Dhara device's block operations:  This approach bypasses the FTL
+  layer and directly integrates Dhara's block management capabilities with the
+  MTD device. Dhara provides features such as wear-leveling and bad block
+  management tailored for specific use cases.
+
+
+Control FTL Behavior via Open Flags
+===================================
+
+The FTL layer translates MTD operations into block-device semantics
+while managing NAND-specific challenges (e.g., bad blocks, wear leveling).
+By default, FTL employs a read-modify-write cycle for writes:
+
+1. Read the entire erase block into a cache buffer.
+2. Modify the target data in memory.
+3. Erase the physical block.
+4. Write the entire buffer back.
+
+This approach ensures data consistency but introduces latency and requires
+sufficient RAM.
+To accommodate performance-sensitive applications,
+FTL supports the following flags during ``open()``:
+
+- **``O_DIRECT``**:
+  Bypasses the read-modify-write cycle, enabling direct writes to flash.
+  Use this flag when: Write speed is critical or Sufficient RAM for caching
+  is unavailable.
+
+- **``O_SYNC``**:
+  Assumes blocks are pre-erased, skipping the erase step during writes.
+  This flag only takes effect when used in conjunction with ``O_DIRECT``.
+
+The diagram below illustrates the workflow when opening an MTD device node
+via the ``open()`` function, highlighting how ``oflags``
+(e.g., ``O_DIRECT``, ``O_SYNC``) are propagated through layers to control
+FTL behavior:
+
+.. figure:: ./mtd_open_flow.png
+  :align: center
+  :alt: MTD Device Open Sequence with Oflags
+
+  *Figure 1: Sequence of opening an MTD device node and oflag propagation*
 
 EEPROM
 ======
@@ -66,6 +139,26 @@ massive data storage. For these reasons, it may not be convenient to use
 the more complex MTD interface but instead use the simple character
 interface provided by the EEPROM drivers.  See drivers/eeprom.
 
+CFI FLASH
+=========
+
+CFI, the full name of which is Common Flash Interface, is a standard proposed
+by JEDEC (Joint Electron Device Engineering Council) in 2003. The role of CFI
+(Common Flash Interface) is to read the information of NOR Flash through a
+unified method.
+
+This standard defines a query interface for Flash that complies with CFI,
+allowing parameterization and platformization of read, write, erase, and other
+interfaces for Flash. It allows programmers to read electrical characteristics
+of Flash-related devices, including memory size, erase speed, special features,
+and more. In other words, it is equivalent to loading the data manual of Flash
+into the physical device of Flash, It can be read and used by relevant personnel
+when needed.
+
+CFI's instruction link:
+https://netwinder.osuosl.org/pub/netwinder/docs/nw/flash/29220403.pdf
+CFI supports intel and amd instruction sets, and currently device drivers are
+already supported
 
 NAND MEMORY
 ===========
@@ -176,7 +269,7 @@ I am currently using nand with a 128KB erase block size and 2K page size
 so each write can cause a 256KB data transfer!
 
 NOTE that there is some caching logic within FAT and FTL so that this
-cached erase block can be re-used if possible and writes will be
+cached erase block can be reused if possible and writes will be
 deferred as long as possible.
 
 SMART FS
@@ -196,5 +289,5 @@ perform bad block detection and sparing so that FAT works transparently
 on top of the NAND.
 
 Another, less general, option would be support bad blocks within FAT.
-Such a solution migh be possible for SLC NAND, but would not be
+Such a solution might be possible for SLC NAND, but would not be
 sufficiently general for all NAND types.

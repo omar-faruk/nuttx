@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/sim/src/sim/posix/sim_hostmisc.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -50,7 +52,7 @@
  * Public Function Prototypes
  ****************************************************************************/
 
-#ifdef CONFIG_ARCH_COVERAGE
+#ifndef CONFIG_COVERAGE_NONE
 void __gcov_dump(void);
 #endif
 
@@ -72,7 +74,7 @@ extern int backtrace(void **array, int size);
 
 void host_abort(int status)
 {
-#ifdef CONFIG_ARCH_COVERAGE
+#ifndef CONFIG_COVERAGE_NONE
   /* Dump gcov data. */
 
   host_uninterruptible_no_return(__gcov_dump);
@@ -126,32 +128,38 @@ int host_system(char *buf, size_t len, const char *fmt, ...)
   int ret;
   char cmd[512];
   va_list vars;
+  uint64_t flags;
 
   va_start(vars, fmt);
-  ret = vsnprintf(cmd, sizeof(cmd), fmt, vars);
+  ret = host_uninterruptible_errno(vsnprintf, cmd, sizeof(cmd), fmt, vars);
   va_end(vars);
   if (ret <= 0 || ret > sizeof(cmd))
     {
-      return ret < 0 ? -errno : -EINVAL;
+      return ret < 0 ? ret : -EINVAL;
     }
 
   if (buf == NULL)
     {
-      ret = host_uninterruptible(system, cmd);
+      ret = host_uninterruptible_errno(system, cmd);
     }
   else
     {
+      flags = up_irq_save();
       fp = host_uninterruptible(popen, cmd, "r");
       if (fp == NULL)
         {
-          return -errno;
+          ret = -errno;
+          up_irq_restore(flags);
+          return ret;
         }
 
-      ret = host_uninterruptible(fread, buf, 1, len, fp);
+      up_irq_restore(flags);
+
+      ret = host_uninterruptible_errno(fread, buf, 1, len, fp);
       host_uninterruptible(pclose, fp);
     }
 
-  return ret < 0 ? -errno : ret;
+  return ret;
 }
 
 /****************************************************************************
@@ -221,6 +229,6 @@ int host_waitpid(pid_t pid)
 {
   int status;
 
-  pid = host_uninterruptible(waitpid, pid, &status, 0);
-  return pid < 0 ? -errno : status;
+  pid = host_uninterruptible_errno(waitpid, pid, &status, 0);
+  return pid < 0 ? pid : status;
 }

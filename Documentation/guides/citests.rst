@@ -8,7 +8,7 @@ Running CI Test Locally
 NuttX automatically runs continuous integration (CI) tests on 
 `simulator <https://nuttx.apache.org/docs/latest/guides/simulator.html>`__
 target when new pull request is submitted. To avoid the tests failing you can
-also run them locally on your computer prior to submiting new pull request.
+also run them locally on your computer prior to submitting new pull request.
 This page describes the step by step manual to do so.
 
 Configuring NuttX
@@ -60,7 +60,7 @@ by following command.
 
   .. code-block:: console
 
-      $ python3 -m pytest -m 'common or sim' ./ -B sim -P nuttx-path -L log-path -R sim -C --json=log-path/pytest.json
+      $ python3 -m pytest -m 'common or sim' ./ -B sim -P <nuttx-path> -L <log-path> -R sim -C --json=<log-path>/pytest.json
 
 Where nuttx-path is an absolute path to NuttX root directory and log-path is
 a user defined directory to which tests log are saved.

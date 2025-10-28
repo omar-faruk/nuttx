@@ -1,6 +1,7 @@
 /****************************************************************************
  * include/nuttx/power/battery_gauge.h
- * NuttX Battery Fuel Gauge Interfaces
+ *
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -120,6 +121,10 @@ struct battery_gauge_operations_s
 
   CODE int (*chipid)(FAR struct battery_gauge_dev_s *dev,
                      FAR unsigned int *value);
+
+  /* Do device specific operation */
+
+  CODE int (*operate)(FAR struct battery_gauge_dev_s *dev, FAR int *param);
 };
 
 /* This structure defines the battery driver state structure */
@@ -258,7 +263,7 @@ FAR struct battery_gauge_dev_s *max1704x_initialize(
  * Name: goldfish_battery_register
  *
  * Description:
- *   Register a emulate battery to tyhe upper-half battery driver.
+ *   Register a emulate battery to the upper-half battery driver.
  *
  * Input Parameters:
  *   regs - the base address for the goldfish battery.

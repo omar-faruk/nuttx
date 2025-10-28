@@ -1,6 +1,8 @@
 /****************************************************************************
  * boards/risc-v/k230/canmv230/scripts/ld-protected.script
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -18,17 +20,7 @@
  *
  ****************************************************************************/
 
-/* NOTE:  This shares memory layout with ld-userland.script */
-
-MEMORY
-{
-  kflash (rx)  : ORIGIN = 0x8000000, LENGTH = 256K /* w/ cache */
-  uflash (rx)  : ORIGIN = 0x8040000, LENGTH = 256K /* w/ cache */
-
-  ksram (rwx)  : ORIGIN = 0x8200000, LENGTH = 1024K /* w/ cache */
-  usram (rwx)  : ORIGIN = 0x8300000, LENGTH = 1024K /* w/ cache */
-}
-
+#include "ld-protected.mem"
 
 OUTPUT_ARCH("riscv")
 

@@ -1,6 +1,8 @@
 ############################################################################
 # arch/tricore/src/tc3xx/Make.defs
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.  The
@@ -18,14 +20,12 @@
 #
 ############################################################################
 
-ifeq ($(CONFIG_ARCH_CHIP_TC397),y)
-  -include tc3xx/tc397/Make.defs
-endif
-
 CHIP_CSRCS += tc3xx_timerisr.c
 CHIP_CSRCS += tc3xx_serial.c
 
 VPATH += tc3xx
+
+ifeq ($(CONFIG_TRICORE_TOOLCHAIN_TASKING),y)
 
 tc3xx_libc$(OBJEXT): tc3xx_libc.c
 	$(call COMPILE, $<, $@)
@@ -34,29 +34,17 @@ libc_fpu$(LIBEXT): tc3xx_libc$(OBJEXT)
 	$(call ARCHIVE, $@, $<)
 
 EXTRA_LIBS += libc_fpu$(LIBEXT)
-LIBPATHS   += $(CURDIR)
 
-TC397_UNPACK  = tc397
-TC397_COMMIT  = master
-TC397_URL     = https://github.com/anchao/tc397_sdk/archive/refs/heads
-TC397_TARBALL = tc3xx/$(TC397_UNPACK).tar.gz
-TC397_DIR     = tc397_sdk-master
+else
 
-$(TC397_TARBALL):
-	$(call DOWNLOAD,$(TC397_URL),$(TC397_COMMIT).tar.gz,$(TC397_TARBALL))
+tc3xx_dummy$(OBJEXT): tc3xx_dummy.c
+	$(call COMPILE, $<, $@)
 
-tc3xx/.tc397_unpack: $(TC397_TARBALL)
-	$(Q) echo "Unpacking: TC397"
-	$(Q) tar xzf $(TC397_TARBALL) -C tc3xx
-	$(Q) mv tc3xx/$(TC397_DIR) tc3xx/$(TC397_UNPACK)
-	$(Q) touch tc3xx/.tc397_unpack
+libos$(LIBEXT): tc3xx_dummy$(OBJEXT)
+	$(call ARCHIVE, $@, $<)
 
+EXTRA_LIBS += libos$(LIBEXT)
 
-ifeq ($(wildcard tc3xx/$(TC397_UNPACK)/.git),)
-context:: .tc397_unpack
-
-distclean::
-	$(call DELFILE, tc3xx/.tc397_unpack)
-	$(call DELFILE, $(TC397_TARBALL))
-	$(call DELDIR, tc3xx/$(TC397_UNPACK))
 endif
+
+LIBPATHS   += $(CURDIR)

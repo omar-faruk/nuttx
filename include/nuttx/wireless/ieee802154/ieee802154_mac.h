@@ -1,6 +1,8 @@
 /*****************************************************************************
  * include/nuttx/wireless/ieee802154/ieee802154_mac.h
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -1135,7 +1137,7 @@ struct ieee802154_disassoc_conf_s
 
   enum ieee802154_status_e status;
 
-  /* Address of device either requesting or being intructed to disassociate */
+  /* Address of device either requesting or being instructed to disassociate */
 
   struct ieee802154_addr_s dev_addr;
 };

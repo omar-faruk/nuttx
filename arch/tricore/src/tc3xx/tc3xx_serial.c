@@ -1,6 +1,8 @@
 /****************************************************************************
  * arch/tricore/src/tc3xx/tc3xx_serial.c
  *
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.  The
@@ -100,10 +102,10 @@
 
 struct up_dev_s
 {
-  void      *uartbase; /* Base address of UART registers */
-  void      *pins;     /* Pin configuration */
-  uint32_t   baud;     /* Configured baud */
-  uint8_t    irq;      /* IRQ associated with this UART */
+  volatile void *uartbase; /* Base address of UART registers */
+  const void    *pins;     /* Pin configuration */
+  uint32_t       baud;     /* Configured baud */
+  uint8_t        irq;      /* IRQ associated with this UART */
 };
 
 /****************************************************************************
@@ -674,7 +676,7 @@ void tricore_lowputc(char ch)
  *
  * Description:
  *   Performs the low level UART initialization early in debug so that the
- *   serial console will be available during bootup.  This must be called
+ *   serial console will be available during boot up.  This must be called
  *   before tricore_serialinit.  NOTE:  This function depends on GPIO pin
  *   configuration performed in up_consoleinit() and main clock
  *   initialization performed in up_clkinitialize().
@@ -722,20 +724,10 @@ void tricore_serialinit(void)
  *
  ****************************************************************************/
 
-int up_putc(int ch)
+void up_putc(int ch)
 {
 #ifdef HAVE_SERIAL_CONSOLE
-  /* Check for LF */
-
-  if (ch == '\n')
-    {
-      /* Add CR */
-
-      tricore_lowputc('\r');
-    }
-
   tricore_lowputc(ch);
 #endif
-  return ch;
 }
 #endif /* USE_SERIALDRIVER */
