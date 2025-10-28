@@ -54,8 +54,8 @@ struct as5600_dev_s
 
 /* Character driver methods */
 
-static ssize_t as5600_read(FAR struct file *filep, FAR uint8_t *buffer, size_t buflen);
-static ssize_t as5600_write(FAR struct file *filep, FAR const uint8_t *buffer, size_t buflen);
+int as5600_read(FAR struct file *filep, FAR uint8_t *buffer, size_t buflen);
+int as5600_write(FAR struct file *filep, FAR const uint8_t *buffer, size_t buflen);
 static int as5600_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
 /****************************************************************************
  * Private Data
@@ -79,14 +79,14 @@ static const struct file_operations g_as5600fops =
  * Name: as5600_read
  ****************************************************************************/
 
-static ssize_t as5600_read_reg(FAR struct as5600_dev_s *priv, uint8_t regaddr, uint8_t *regval)
+int as5600_read_reg(FAR struct as5600_dev_s *priv, uint8_t regaddr, uint8_t *regval)
 {
   int ret = OK;
   struct i2c_config_s config;
 
   /* Set up the I2C configuration */
 
-  config.frequency = priv->frequency;
+  config.frequency = priv->freq;
   config.address = priv->addr;
   config.addrlen = 7;
 
@@ -111,13 +111,12 @@ static ssize_t as5600_read_reg(FAR struct as5600_dev_s *priv, uint8_t regaddr, u
   sninfo("addr: %02x value: %02x ret: %d\n", regaddr, *regval, ret);
   return ret;
 }
-}
 
 /****************************************************************************
  * Name: as5600_write
  ****************************************************************************/
 
-static ssize_t as5600_write_reg(FAR struct as5600_dev_s *priv, uint8_t regaddr, uint8_t regval)
+int as5600_write_reg(FAR struct as5600_dev_s *priv, uint8_t regaddr, uint8_t regval)
 {
 
   struct i2c_config_s config;
@@ -126,8 +125,9 @@ static ssize_t as5600_write_reg(FAR struct as5600_dev_s *priv, uint8_t regaddr, 
   sninfo("addr: %02x value: %02x\n", regaddr, regval);
 
   /* Set up the I2C configuration */
+  uint8_t buffer[2];
 
-  config.frequency = priv->frequency;
+  config.frequency = priv->freq;
   config.address = priv->addr;
   config.addrlen = 7;
 
@@ -150,25 +150,25 @@ static ssize_t as5600_write_reg(FAR struct as5600_dev_s *priv, uint8_t regaddr, 
 static int as5600_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 {
   FAR struct inode *inode = filep->f_inode;
-  FAR struct as5600_dev_s *priv = inode->i_private;
+  struct as5600_dev_s *priv = inode->i_private;
 
-  as5600_reg_io_s *reg_io = (FAR struct as5600_reg_io_s *)((uintptr_t)arg);
+  struct as5600_reg_io_s *reg_io = (FAR struct as5600_reg_io_s *)((uintptr_t)arg);
   int ret = 0;
 
   switch (cmd)
   {
   case AS5600_IOC_READ_REG:
   {
-    
+
     if (reg_io->data == NULL)
     {
-        malloc(reg_io, sizeof(uint8_t) * buflen);
+      reg_io->data = (uint8_t *)(sizeof(uint8_t) * reg_io->buflen);
     }
     uint8_t data;
     for (size_t i = 0; i < reg_io->buflen; i++)
     {
 
-      ret = as5600_read_reg(priv, &reg_io->regval, data);
+      ret = as5600_read_reg(priv, reg_io->reg + i, &data);
       if (ret < 0)
       {
         snerr("AS5600_IOC_READ_REG failed: %d\n", ret);
@@ -178,10 +178,10 @@ static int as5600_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
     }
     break;
   }
-  
+
   case AS5600_IOC_WRITE_REG:
   {
-    ret = as5600_write_reg(priv, reg_io->regval, reg - io->buflen);
+    ret = as5600_write_reg(priv, reg_io->reg, reg_io->buflen);
     if (ret < 0)
     {
       snerr("AS5600_IOC_WRITE_REG failed: %d\n", ret);
@@ -195,6 +195,7 @@ static int as5600_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
     snerr("Unrecognized cmd: %d\n", cmd);
     ret = -ENOTTY;
     break;
+  }
   }
   return ret;
 }
